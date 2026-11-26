@@ -609,9 +609,11 @@ function rowChoices(row){
   const kind=row?.querySelector('[data-f="kind"]')?.value||'base',ci=classIndexOf(char(),build());
   if(kind==='temper'||kind==='implicit')return {choices:allAffixChoices(itemCatalog,ci),strict:false};
   const pool=scanAffixPool(scan.item);
-  // A unique's own (fixed) affixes are always legal on it even when outside the type's random pool
-  const own=(scan.item.affixes||[]).filter(a=>a.fixed).map(a=>a.name);
-  return pool.length?{choices:[...new Set([...pool,...own])].sort((a,b)=>a.localeCompare(b)),strict:true}:{choices:allAffixChoices(itemCatalog,ci),strict:false};
+  // Uniques, mythics and runeword items carry their own lines (Insight's Essence Regeneration) that are in
+  // neither the type's random pool nor the catalog's fixed list, so any known affix is accepted on them.
+  if(/unique|mythic/i.test(scan.item.rarity||'')||scan.item.catalogKey&&/runeword/i.test(scan.item.catalogKey))
+    return {choices:[...new Set([...pool,...allAffixChoices(itemCatalog,ci),...(scan.item.affixes||[]).filter(a=>a.fixed).map(a=>a.name)])].sort((a,b)=>a.localeCompare(b)),strict:false};
+  return pool.length?{choices:pool,strict:true}:{choices:allAffixChoices(itemCatalog,ci),strict:false};
 }
 function affixPoolNote(it){
   if(!itemCatalog)return '';
