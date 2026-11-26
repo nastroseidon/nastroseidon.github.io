@@ -135,3 +135,4 @@ code{background:#140e0e;padding:1px 5px;border-radius:3px;font-size:.85em}
 .pickerlist li.none{color:var(--muted);cursor:default;background:none}
 input.invalid,.affixedit input.invalid{border-color:var(--red);box-shadow:0 0 0 1px var(--red);background:#2a1414}
 @media (max-width:760px){.affixedit input[data-f="name"],.pickerlist li{font-size:16px}}
+.checkflag{display:block;color:#e0a040;font-size:.78em}

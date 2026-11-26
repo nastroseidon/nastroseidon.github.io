@@ -33,14 +33,17 @@ export function searchItems(catalog,query,{classIndex=null,slot=null,limit=20}={
 const slotFamily=s=>String(s||'').replace(/\d+$/,'');
 
 /** Best catalog item for a scanned name; null when nothing is close enough. */
-export function matchItemName(catalog,name,{classIndex=null,slot=null,threshold=0.82}={}){
+export function matchItemName(catalog,name,{classIndex=null,slot=null,itemType=null,threshold=0.82}={}){
   if(!catalog||!norm(name))return null;
+  // One unique can exist on several weapon types (Insight: Staff, Bow, Two-Handed Scythe…): prefer the type that was read
+  const readType=itemType?resolveTypeName(catalog,itemType):null;
   let best=null;
   for(const item of catalog.items||[]){
     let s=similarity(name,item.name);
     if(s<threshold-0.1)continue;
     if(!usable(item.cls,classIndex))s-=0.05;
     if(slot&&slotFamily(item.slot)===slotFamily(slot))s+=0.02;
+    if(readType&&norm(item.typeName)===norm(readType))s+=0.01;
     if(!best||s>best.score)best={item,score:s};
   }
   return best&&best.score>=threshold?{...best.item,matchScore:Math.min(1,Math.round(best.score*100)/100)}:null;
@@ -189,4 +192,27 @@ export function canonicalChoice(value,choices,threshold=0.8){
   const v=norm(value);if(!v)return null;
   const exact=choices.find(c=>norm(c)===v);if(exact)return exact;
   return snapAffixName(value,choices,threshold);
+}
+
+/**
+ * Items with no catalog match (legendaries, rares): snap misread affix names to the type's pool and
+ * flag values outside their own [min - max] range, so the verify form can point at rows to check.
+ */
+export function snapToTypePool(item,catalog,{classIndex=null}={}){
+  const out=structuredClone(item||{});
+  const typeName=resolveTypeName(catalog,out.itemType);
+  if(typeName)out.itemType=typeName;
+  const type=typeName?typeByName(catalog,typeName,out.slot):null;
+  const pool=type?affixChoices(catalog,type.type,classIndex):[];
+  out.affixes=(out.affixes||[]).map(a=>{
+    if(a.kind==='temper'||a.fixed)return a;
+    a=cleanRangeTail(a);
+    const snapped=pool.length?snapAffixName(a.name,pool):null;
+    if(snapped&&snapped!==a.name)a={...a,name:snapped,snappedFrom:a.snappedFrom||a.name};
+    // Quality upgrades push a value a little past its max (+31 Essence Regeneration +[30]), so only a big overshoot is suspicious
+    const outOfRange=a.value!=null&&a.min!=null&&a.max!=null&&(a.value<a.min||a.value>a.max*1.25);
+    const unknown=pool.length&&a.name&&!pool.includes(a.name);
+    return outOfRange||unknown?{...a,check:outOfRange?'value outside its range':'not an affix this item type can roll'}:a;
+  });
+  return out;
 }
