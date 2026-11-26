@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>D4 Build Viewer</title>
+  <link rel="icon" href="icons/icon-32.png">
+  <link rel="stylesheet" href="viewer.css">
+</head>
+<body>
+  <header class="topbar">
+    <a href="#" id="home" class="brand"><img src="icons/icon-32.png" alt="" width="24" height="24"><span>D4 Build Viewer</span></a>
+    <form id="load-form" class="load-form" autocomplete="off">
+      <input id="src" type="text" spellcheck="false" placeholder="Paste a Maxroll D4 build guide URL, planner URL, or planner id" aria-label="Build URL or planner id">
+      <button type="submit" class="btn primary">Load</button>
+    </form>
+  </header>
+
+  <main>
+    <div id="status" class="status" hidden></div>
+
+    <section id="landing" class="landing" hidden>
+      <h1>Diablo IV build viewer for Maxroll guides</h1>
+      <p>Paste a Maxroll build guide or planner link to see every variant&rsquo;s gear (aspects, affixes, tempers, runes, charms), the full skill tree, paragon boards with glyphs, and the author&rsquo;s notes &mdash; then export it all as Markdown or JSON.</p>
+      <p class="muted small" id="mode-note"></p>
+      <div class="examples">
+        <span class="muted">Try:</span>
+        <a href="#" data-example="https://maxroll.gg/d4/build-guides/blood-wave-necromancer-guide">Blood Wave Necromancer guide</a>
+        <a href="#" data-example="https://maxroll.gg/d4/planner/xf9um40q">Blood Wave planner (xf9um40q)</a>
+      </div>
+      <div id="recent"></div>
+      <p class="muted small disclaimer">Unofficial tool. Build data, game data and icons are loaded live from Maxroll&rsquo;s public endpoints and belong to Maxroll and Blizzard Entertainment.</p>
+      <p class="muted small" id="viewer-version"></p>
+    </section>
+
+    <section id="build" hidden>
+      <div id="build-head" class="build-head"></div>
+      <div id="variants" class="variants"></div>
+      <nav id="tabs" class="tabs" role="tablist" aria-label="Sections"></nav>
+      <div id="view" class="view"></div>
+    </section>
+  </main>
+
+  <script src="js/gamedata.js"></script>
+  <script src="js/source.js"></script>
+  <script src="js/richtext.js"></script>
+  <script src="js/ui.js"></script>
+  <script src="js/model.js"></script>
+  <script src="js/views.js"></script>
+  <script src="js/exporter.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
