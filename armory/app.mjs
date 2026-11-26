@@ -6,7 +6,7 @@ import {gradeItem,improvementPlan,recommendation,aspectMatch} from './src/item-g
 import {howToGet,nextStep,nextTargetFor,equippedMatches,catalogEntry} from './src/acquisition.mjs';
 import {githubClient,runSync} from './src/sync.mjs';
 import {importSavedGuide} from './src/importers/guide-pages.mjs';
-import {searchItems,matchItemName,identifyItem,applyCatalogItem,affixChoices,allAffixChoices,filterChoices,canonicalChoice,resolveTypeName,typesForSlot,typeByName} from './src/catalog-match.mjs';
+import {searchItems,matchItemName,identifyItem,applyCatalogItem,affixChoices,allAffixChoices,filterChoices,canonicalChoice,resolveTypeName,typesForSlot,typeByName,snapToTypePool} from './src/catalog-match.mjs';
 
 const $=id=>document.getElementById(id);
 // Editions: 'server' (local Node server on the Mac), 'portable' (single file, no server), 'web' (GitHub Pages / home screen app)
@@ -428,9 +428,10 @@ async function cropToItem(file,bbox){
 }
 function scanDialog(){
   scan={};
-  scanStep(1,'Scan Item','<p>Upload a screenshot or photo of the item tooltip. Only the item’s own text is read, top to bottom. Flavour text, requirements and game buttons such as Equip, Compare and Mark as Junk are ignored.</p><label class="dropzone"><input id="scanFile" type="file" accept="image/*" multiple><strong>'+(ON_WEB?'Take a photo or choose screenshots':'Choose item images')+'</strong><small>'+(ON_WEB?'Several at once is fine: each is reviewed in turn · read on this device':'PNG, JPEG, HEIC or WebP · several at once is fine · processed on this computer')+'</small></label><div id="scanStatus" role="status"></div>'+(ON_SERVER?'<section class="sectionbox phonebox"><h3>Send from your phone</h3><div id="phonePanel"></div></section>':'')+'<section class="sectionbox manualbox"><h3>No photo?</h3><p class="muted">Type the item’s name, pick it from the list, and fill in the numbers. Fixed affixes fill in automatically and only affixes the item can roll are offered.</p><button type="button" class="secondary" id="scanManual">Enter item manually</button></section><details id="scanPaste" class="sectionbox"><summary>Paste the tooltip text instead</summary><textarea id="scanText" rows="8" placeholder="Paste the item tooltip, top to bottom"></textarea><div class="toolbar"><button class="secondary" id="scanTextBtn" type="button">Review pasted text</button></div></details>');
+  scanStep(1,'Scan Item','<p>Upload a screenshot or photo of the item tooltip. Only the item’s own text is read, top to bottom. Flavour text, requirements and game buttons such as Equip, Compare and Mark as Junk are ignored.</p><label class="dropzone"><input id="scanFile" type="file" accept="image/*" multiple><strong>'+(ON_WEB?'Take a photo or choose screenshots':'Choose item images')+'</strong><small>'+(ON_WEB?'Several at once is fine: each is reviewed in turn · read on this device':'PNG, JPEG, HEIC or WebP · several at once is fine · processed on this computer')+'</small></label><div id="scanStatus" role="status"></div>'+claudeBoxHtml()+(ON_SERVER?'<section class="sectionbox phonebox"><h3>Send from your phone</h3><div id="phonePanel"></div></section>':'')+'<section class="sectionbox manualbox"><h3>No photo?</h3><p class="muted">Type the item’s name, pick it from the list, and fill in the numbers. Fixed affixes fill in automatically and only affixes the item can roll are offered.</p><button type="button" class="secondary" id="scanManual">Enter item manually</button></section><details id="scanPaste" class="sectionbox"><summary>Paste the tooltip text instead</summary><textarea id="scanText" rows="8" placeholder="Paste the item tooltip, top to bottom"></textarea><div class="toolbar"><button class="secondary" id="scanTextBtn" type="button">Review pasted text</button></div></details>');
   $('scanFile').onchange=()=>{const files=[...$('scanFile').files];if(files.length)scanFromFile(files[0],null,{queue:files.slice(1),total:files.length,index:1})};
   if(ON_SERVER)phonePanel(false);
+  wireClaudeBox();
   $('scanManual').onclick=async()=>{await loadCatalog();scan={item:{name:'',slot:scanDefaultSlot(),rarity:'Unknown',affixes:[]},manual:true};scanVerify();setTimeout(()=>$('verifyForm')?.elements.name.focus(),0)};
   $('scanTextBtn').onclick=async()=>{const text=$('scanText').value;if(!text.trim()){toast('Paste the tooltip text first');return}await loadCatalog();scan={...scan,item:withCatalog(parseTooltip(text)),pasted:true};scanVerify()};
 }
@@ -449,8 +450,62 @@ async function scanFromFile(file,phoneId=null,batch=null){
     }catch(error){if($('scanStatus')){$('scanStatus').innerHTML='<div class="notice">Could not read the image: '+esc(error.message)+'. Paste the tooltip text below or enter the item manually.</div>';if($('scanPaste'))$('scanPaste').open=true}}
 }
 function batchLabel(){return scan?.batch?.total>1?' · photo '+scan.batch.index+' of '+scan.batch.total:''}
+// ----- Reading with Claude (src/claude-reader.mjs). Web edition: the viewer's own API key, stored only on
+// this device. Server edition: the key comes from ANTHROPIC_API_KEY on the Mac and never reaches the browser.
+const CLAUDE_KEY='sanctuaryArmory.claude';
+function claudeConfig(){try{return JSON.parse(localStorage.getItem(CLAUDE_KEY)||'null')||{}}catch{return {}}}
+function setClaudeConfig(c){try{localStorage.setItem(CLAUDE_KEY,JSON.stringify(c))}catch{toast('This browser won’t store settings (private browsing?)')}}
+let claudeServerStatus=null;
+async function claudeServerReady(){
+  if(!ON_SERVER)return false;
+  if(claudeServerStatus==null){try{claudeServerStatus=!!(await (await fetch('api/claude/status')).json()).configured}catch{claudeServerStatus=false}}
+  return claudeServerStatus;
+}
+async function claudeReady(){const c=claudeConfig();if(c.enabled===false)return false;return ON_SERVER?claudeServerReady():ON_WEB&&!!c.apiKey}
+async function readWithClaude(file){
+  const reader=await import('./src/claude-reader.mjs');
+  await loadCatalog();
+  const c=claudeConfig(),model=c.model||reader.DEFAULT_MODEL;
+  const knownAffixes=itemCatalog?allAffixChoices(itemCatalog,classIndexOf(char(),build())):[];
+  const image=await reader.prepareImage(file);
+  let reading;
+  if(ON_SERVER){
+    const response=await fetch('api/claude/read',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...image,knownAffixes,model})});
+    const result=await response.json();if(!response.ok)throw new Error(result.error);reading=result.reading;
+  }else reading=(await reader.callClaude(reader.buildRequest({...image,knownAffixes,model}),{apiKey:c.apiKey,browser:true})).reading;
+  const item=reader.readingToItem(reading);
+  return {engine:'Claude ('+model+')',text:item.rawText,fullText:item.rawText,item,reading,tooltip:{bbox:reader.readingBox(reading),skipped:[],lines:[]}};
+}
+function claudeBoxHtml(){
+  if(!ON_WEB&&!ON_SERVER)return '';
+  const c=claudeConfig();
+  return '<details class="sectionbox" id="claudeBox"><summary>Read items with Claude '+(c.enabled!==false&&(c.apiKey||ON_SERVER)?'<small id="claudeState" class="muted"></small>':'<small class="muted">(off)</small>')+'</summary>'
+    +'<p class="muted">Claude reads the photo directly, which is far more accurate than on-device text recognition on game fonts. Only the item’s own tooltip is read. Each photo is sent to Anthropic. On-device reading is used when Claude is off or unreachable.</p>'
+    +(ON_WEB?'<label class="field"><span class="fieldlabel">Anthropic API key</span><input id="claudeKey" type="password" autocomplete="off" placeholder="sk-ant-…" value="'+esc(c.apiKey||'')+'"><small class="muted">Stored only on this device. Create one at console.anthropic.com.</small></label>'
+      :'<p class="muted small" id="claudeServerNote">On this Mac, Claude uses the key in the ANTHROPIC_API_KEY environment variable when the server starts.</p>')
+    +'<label class="field"><span class="fieldlabel">Model</span><select id="claudeModel"></select></label>'
+    +'<label class="field inline"><input type="checkbox" id="claudeOn"'+(c.enabled===false?'':' checked')+'> Use Claude when available</label>'
+    +'<div class="toolbar"><button type="button" class="secondary small" id="claudeSave">Save</button></div></details>';
+}
+async function wireClaudeBox(){
+  if(!$('claudeBox'))return;
+  const {CLAUDE_MODELS,DEFAULT_MODEL}=await import('./src/claude-reader.mjs'),c=claudeConfig();
+  $('claudeModel').innerHTML=CLAUDE_MODELS.map(m=>'<option value="'+m.id+'"'+((c.model||DEFAULT_MODEL)===m.id?' selected':'')+'>'+esc(m.label)+'</option>').join('');
+  if(ON_SERVER&&!(await claudeServerReady())&&$('claudeServerNote'))$('claudeServerNote').textContent='No ANTHROPIC_API_KEY is set on this Mac, so items are read on the device. Start the server with ANTHROPIC_API_KEY=sk-ant-… to use Claude.';
+  if($('claudeState'))$('claudeState').textContent=(await claudeReady())?'(on)':'(off)';
+  $('claudeSave').onclick=async()=>{
+    const next={...claudeConfig(),model:$('claudeModel').value,enabled:$('claudeOn').checked};
+    if($('claudeKey'))next.apiKey=$('claudeKey').value.trim();
+    setClaudeConfig(next);if($('claudeState'))$('claudeState').textContent=(await claudeReady())?'(on)':'(off)';
+    toast((await claudeReady())?'Claude will read your item photos':'Claude reading is off');
+  };
+}
 /** Text recognition: Apple Vision through the local server, or Tesseract on this device in the web edition. */
 async function recognizeFile(file,onProgress){
+  if(await claudeReady()){
+    try{onProgress?.({status:'reading with Claude'});return await readWithClaude(file)}
+    catch(error){toast(error.message+'. Using on-device text recognition instead.')}
+  }
   if(ON_SERVER){
     const response=await fetch('api/ocr',{method:'POST',headers:{'Content-Type':file.type},body:file}),result=await response.json();
     if(!response.ok)throw new Error(result.error);
@@ -506,11 +561,10 @@ function scanDefaultSlot(){const b=build();return Object.keys(b?.slots||{}).find
 function withCatalog(item){
   if(!itemCatalog||!item?.name)return item;
   const ci=classIndexOf(char(),build());
-  const entry=matchItemName(itemCatalog,item.name,{classIndex:ci,slot:item.slot})||identifyItem(itemCatalog,{name:item.name,rarity:item.rarity,itemType:item.itemType,slot:item.slot,classIndex:ci,affixes:item.affixes});
+  const entry=matchItemName(itemCatalog,item.name,{classIndex:ci,slot:item.slot,itemType:item.itemType})||identifyItem(itemCatalog,{name:item.name,rarity:item.rarity,itemType:item.itemType,slot:item.slot,classIndex:ci,affixes:item.affixes});
   if(entry)return applyCatalogItem(item,entry,itemCatalog,{classIndex:ci});
-  // No catalog item (legendaries): still snap a misread type line so the affix list can be limited to it
-  const typeName=resolveTypeName(itemCatalog,item.itemType);
-  return typeName&&typeName!==item.itemType?{...item,itemType:typeName}:item;
+  // No catalog item (legendaries, rares): snap the type line and the affix names to that type's pool
+  return snapToTypePool(item,itemCatalog,{classIndex:ci});
 }
 function scanTypeKey(it){return it.catalogMatch?itemCatalog?.items.find(i=>i.key===it.catalogMatch.key)?.type:typeByName(itemCatalog,it.itemType,it.slot)?.type}
 function catalogBadge(it){
@@ -522,7 +576,7 @@ function catalogBadge(it){
 }
 function scanTarget(slot){const c=char(),b=build(c);return {c,b,target:b?.slots?.[targetSlot(b,slot)]||null}}
 function affixRowHtml(a,i){
-  return '<tr data-affix-row="'+i+'"'+(a.fixed?' data-fixed="1" class="fixedaffix"':'')+'><td><input data-f="name" value="'+esc(a.name||'')+'" aria-label="Affix name"'+(a.fixed?' readonly title="Fixed affix of this item"':'')+'>'+(a.fixed?'<small class="fixedtag">fixed</small>':a.snappedFrom?'<small class="muted">read as “'+esc(a.snappedFrom)+'”</small>':'')+'</td><td><input data-f="value" inputmode="decimal" value="'+esc(a.value??'')+'" aria-label="Value" placeholder="value"></td><td><select data-f="unit" aria-label="Unit">'+scanUnits.map(u=>'<option value="'+u.value+'"'+(u.value===(a.unit||'flat')?' selected':'')+'>'+u.label+'</option>').join('')+'</select></td><td class="range"><input data-f="min" inputmode="decimal" value="'+esc(a.min??'')+'" aria-label="Range minimum" placeholder="min"><span>–</span><input data-f="max" inputmode="decimal" value="'+esc(a.max??'')+'" aria-label="Range maximum" placeholder="max"></td><td><select data-f="kind" aria-label="Affix type">'+scanKinds.map(k=>'<option value="'+k.value+'"'+(k.value===(a.kind||'base')?' selected':'')+'>'+k.label+'</option>').join('')+'</select>'+(a.kindGuess?'<small class="muted">guess</small>':'')+'</td><td class="center"><input type="checkbox" data-f="ga"'+(a.greaterAffix?' checked':'')+' aria-label="Greater Affix"></td><td>'+(a.fixed?'':'<button type="button" class="quiet small" data-remove-affix="'+i+'" aria-label="Remove affix">✕</button>')+'</td></tr>';
+  return '<tr data-affix-row="'+i+'"'+(a.fixed?' data-fixed="1" class="fixedaffix"':'')+'><td><input data-f="name" value="'+esc(a.name||'')+'" aria-label="Affix name"'+(a.fixed?' readonly title="Fixed affix of this item"':'')+'>'+(a.fixed?'<small class="fixedtag">fixed</small>':a.snappedFrom?'<small class="muted">read as “'+esc(a.snappedFrom)+'”</small>':'')+(a.check?'<small class="checkflag">⚠ check: '+esc(a.check)+'</small>':'')+'</td><td><input data-f="value" inputmode="decimal" value="'+esc(a.value??'')+'" aria-label="Value" placeholder="value"></td><td><select data-f="unit" aria-label="Unit">'+scanUnits.map(u=>'<option value="'+u.value+'"'+(u.value===(a.unit||'flat')?' selected':'')+'>'+u.label+'</option>').join('')+'</select></td><td class="range"><input data-f="min" inputmode="decimal" value="'+esc(a.min??'')+'" aria-label="Range minimum" placeholder="min"><span>–</span><input data-f="max" inputmode="decimal" value="'+esc(a.max??'')+'" aria-label="Range maximum" placeholder="max"></td><td><select data-f="kind" aria-label="Affix type">'+scanKinds.map(k=>'<option value="'+k.value+'"'+(k.value===(a.kind||'base')?' selected':'')+'>'+k.label+'</option>').join('')+'</select>'+(a.kindGuess?'<small class="muted">guess</small>':'')+'</td><td class="center"><input type="checkbox" data-f="ga"'+(a.greaterAffix?' checked':'')+' aria-label="Greater Affix"></td><td>'+(a.fixed?'':'<button type="button" class="quiet small" data-remove-affix="'+i+'" aria-label="Remove affix">✕</button>')+'</td></tr>';
 }
 function affixCountHtml(it){
   const rolled=(it.affixes||[]).filter(a=>a.kind!=='temper'&&a.kind!=='implicit').length,fixed=(it.affixes||[]).filter(a=>a.fixed&&a.kind!=='implicit').length;
@@ -629,7 +683,7 @@ function scanVerify(){
   });
   nameInput.addEventListener('change',()=>{
     if(!itemCatalog)return;
-    const entry=matchItemName(itemCatalog,nameInput.value,{classIndex:ci,slot:scan.item.slot,threshold:0.9});
+    const entry=matchItemName(itemCatalog,nameInput.value,{classIndex:ci,slot:scan.item.slot,itemType:scan.item.itemType,threshold:0.9});
     readVerifyForm();
     if(entry&&entry.key!==scan.item.catalogMatch?.key){scan.item=applyCatalogItem(scan.item,entry,itemCatalog,{classIndex:ci});scanVerify();setTimeout(()=>document.querySelector('[data-affix-row] [data-f="value"]')?.focus(),0)}
     else if(!entry&&scan.item.catalogMatch===undefined)scanVerify();
