@@ -81,21 +81,34 @@ export function cleanRangeTail(a){
   return out;
 }
 
+/** The catalog type name in an OCR'd type line ("Two-Handed il Scythe" -> "Two-Handed Scythe"): the longest whose words all appear. */
+export function resolveTypeName(catalog,itemType){
+  const words=new Set(norm(itemType).split(' ').filter(Boolean));if(!words.size)return null;
+  let best=null;
+  for(const t of catalog?.types||[]){const tw=norm(t.typeName).split(' ');if(tw.every(w=>words.has(w))&&(!best||tw.length>best.n))best={name:t.typeName,n:tw.length}}
+  return best?.name||null;
+}
+
 /**
  * When the name is too damaged to match on its own, use what the tooltip's type line says
  * (e.g. "Unique Pants") to narrow the candidates, then compare words.
  */
-export function identifyItem(catalog,{name,rarity,itemType,slot,classIndex=null}={}){
-  if(!catalog||!/unique|mythic/i.test(rarity||'')||!norm(name))return null;
-  const fam=slotFamily(slot);
-  const pool=(catalog.items||[]).filter(i=>i.rarity.toLowerCase()===String(rarity).toLowerCase()&&usable(i.cls,classIndex)&&(itemType?norm(i.typeName)===norm(itemType):slotFamily(i.slot)===fam));
+export function identifyItem(catalog,{name,rarity,itemType,slot,classIndex=null,affixes=[]}={}){
+  if(!catalog||!/unique|mythic/i.test(rarity||''))return null;
+  if(/^unidentified item$/i.test(name||''))name='';
+  const fam=slotFamily(slot),typeName=resolveTypeName(catalog,itemType);
+  const pool=(catalog.items||[]).filter(i=>i.rarity.toLowerCase()===String(rarity).toLowerCase()&&usable(i.cls,classIndex)&&(typeName?norm(i.typeName)===norm(typeName):slotFamily(i.slot)===fam));
   if(!pool.length)return null;
   const words=norm(name).split(' ').filter(w=>w.length>=3);
-  const score=i=>{const target=norm(i.name).split(' ').filter(w=>w.length>=3);if(!target.length)return 0;
+  const score=i=>{if(!words.length)return 0;const target=norm(i.name).split(' ').filter(w=>w.length>=3);if(!target.length)return 0;
     return target.reduce((sum,t)=>sum+Math.max(0,...words.map(w=>similarity(w,t))),0)/target.length};
-  const ranked=pool.map(i=>({i,s:Math.max(score(i),similarity(name,i.name))})).sort((a,b)=>b.s-a.s);
+  // Fixed affixes are a fingerprint: when the title wasn't read, the unique whose own affixes are on the item
+  const read=(affixes||[]).map(a=>a?.name).filter(Boolean);
+  const prints=i=>{const fixed=(i.fixed||[]).map(k=>catalog.affixes?.[k]?.label).filter(Boolean);if(fixed.length<2||!read.length)return 0;
+    return fixed.filter(l=>read.some(r=>similarity(r,l)>=0.8)).length/fixed.length};
+  const ranked=pool.map(i=>{const n=Math.max(score(i),name?similarity(name,i.name):0),f=prints(i);return {i,s:Math.max(n,f*0.9),by:f*0.9>n?'fixed affixes':'type line'}}).sort((a,b)=>b.s-a.s);
   const [best,second]=ranked;
-  if(best.s>=0.6&&(!second||best.s-second.s>=0.15))return {...best.i,matchScore:Math.round(best.s*100)/100,matchedBy:'type line'};
+  if(best.s>=0.6&&(!second||best.s-second.s>=0.15))return {...best.i,matchScore:Math.round(best.s*100)/100,matchedBy:best.by};
   return null;
 }
 
@@ -146,4 +159,34 @@ export function applyCatalogItem(item,entry,catalog,{classIndex=null}={}){
   }
   out.catalogMatch={key:entry.key,name:entry.name,affixCount:entry.affixCount,fixed:fixedLabels,lootSource:entry.lootSource||null,score:entry.matchScore??null};
   return out;
+}
+
+/** Every affix label a class can roll on any item type (for tempers and items with no type chosen). */
+export function allAffixChoices(catalog,classIndex=null){
+  const labels=new Set();
+  for(const keys of Object.values(catalog?.pools||{}))for(const k of keys){const a=catalog.affixes[k];if(a&&usable(a.cls,classIndex))labels.add(a.label)}
+  return [...labels].sort((a,b)=>a.localeCompare(b));
+}
+
+/**
+ * Filter a choice list for a search box: every typed word must start a word of the choice
+ * ("crit dam" finds "Critical Strike Damage Multiplier"); prefix matches come first.
+ */
+export function filterChoices(choices,query,limit=200){
+  const q=norm(query);if(!q)return choices.slice(0,limit);
+  const words=q.split(' ');
+  const hits=[];
+  for(const c of choices){
+    const n=norm(c),cw=n.split(' ');
+    if(!words.every(w=>cw.some(x=>x.startsWith(w))||n.includes(w)))continue;
+    hits.push({c,s:n===q?0:n.startsWith(q)?1:words.every(w=>cw.some(x=>x.startsWith(w)))?2:3});
+  }
+  return hits.sort((a,b)=>a.s-b.s||a.c.localeCompare(b.c)).slice(0,limit).map(h=>h.c);
+}
+
+/** The canonical label for a typed or scanned affix name, or null when it is not in the list. */
+export function canonicalChoice(value,choices,threshold=0.8){
+  const v=norm(value);if(!v)return null;
+  const exact=choices.find(c=>norm(c)===v);if(exact)return exact;
+  return snapAffixName(value,choices,threshold);
 }

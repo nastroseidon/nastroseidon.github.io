@@ -15,7 +15,7 @@ const SYNONYMS=[
   [/^resource regeneration \/ second$/,'resource regeneration'],
 ];
 export function affixKey(name){
-  let k=String(name||'').toLowerCase().replace(/\[[x+×]\]/g,' ').replace(/[#%+:]/g,' ').replace(/^to\s+/,'').replace(/\s+/g,' ').trim();
+  let k=String(name||'').toLowerCase().replace(/\+?\[\s*[\d.,]+[\d.,\s%–-]*\]?%?/g,' ').replace(/\[[x+×]\]/g,' ').replace(/[#%+:]/g,' ').replace(/^to\s+/,'').replace(/\s+/g,' ').trim();
   for(const [re,to] of SYNONYMS)if(re.test(k)){k=to;break}
   return k;
 }
@@ -35,6 +35,7 @@ export function affixQuality(affix,targetAffix){
   const v=parseNumber(affix?.value);
   if(v==null)return {q:0.8,basis:'value not read'};
   const min=parseNumber(affix.min),max=parseNumber(affix.max);
+  if(min!=null&&max!=null&&max===min&&v===min)return {q:1,basis:'fixed value (always rolls '+v+')'};
   if(min!=null&&max!=null&&max>min){const r=Math.max(0,Math.min(1,(v-min)/(max-min)));return {q:0.6+0.4*r,basis:Math.round(r*100)+'% of its roll range',roll:r}}
   const ideal=parseNumber(targetAffix?.idealValue);
   if(ideal){const r=Math.max(0,Math.min(1,v/ideal));return {q:Math.max(0.3,r),basis:Math.round(r*100)+'% of the guide value ('+targetAffix.idealValue+')'}}
@@ -47,7 +48,19 @@ const alternativeTargets=t=>(t?.affixes||[]).filter(a=>a.primary===false||a.alte
 const temperTargets=t=>t?.tempers?.length?t.tempers.map(x=>({name:x.name,recipe:x.recipe||null})):t?.temper?String(t.temper).split('/').map(s=>({name:s.trim(),recipe:null})).filter(x=>x.name):[];
 const gaTargets=t=>t?.greaterAffixPriority?.length?t.greaterAffixPriority:t?.greaterAffixTargets||[];
 const uniqueTarget=t=>Boolean(t&&(t.identityRequired===true||/^(unique|mythic)$/i.test(t.rarity||'')));
-const sameItemName=(a,b)=>String(a||'').trim().toLowerCase()===String(b||'').trim().toLowerCase();
+const sameItemName=(a,b)=>nameKey(a)===nameKey(b);
+// Item names as guides and scans write them: "Insight (2H scythe)", "Insight 2H Scythe", "INSIGHT Unique
+// Two-Handed Scythe", "Bone Breaker’s Sparr". Compare the name itself, without case, curly quotes, a
+// parenthetical, or a trailing rarity / item type.
+const NAME_TAIL=new Set('ancestral sacred common magic rare legendary unique mythic set 1h 2h one two handed one-handed two-handed helm chest armor gloves pants boots amulet ring sword axe mace scythe polearm staff quarterstaff wand dagger bow crossbow focus totem shield glaive flail charm seal horadric weapon'.split(' '));
+function nameKey(s){return String(s||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[’‘`]/g,"'").replace(/\([^)]*\)/g,' ').replace(/[^a-z0-9' -]+/g,' ').replace(/\s+/g,' ').trim()}
+function baseName(s){const w=nameKey(s).split(' ');while(w.length>1&&NAME_TAIL.has(w.at(-1)))w.pop();while(w.length>1&&NAME_TAIL.has(w.at(-1).replace(/-.*/,'')))w.pop();return w.join(' ')}
+/** Is this item the named unique? Uses the game-data match when the scan has one. */
+export function isNamedItem(item,targetName){
+  if(!item||!targetName)return false;
+  const names=[item.name,item.catalogMatch?.name].filter(Boolean);
+  return names.some(n=>sameItemName(n,targetName)||baseName(n)===baseName(targetName));
+}
 
 /** Does the item's power match the target aspect / unique power? */
 export function aspectMatch(item,target){
@@ -72,7 +85,7 @@ export function gradeItem(item,target){
   const isUniqueTarget=uniqueTarget(target);
   let identity=null;
   if(isUniqueTarget){
-    identity={matched:sameItemName(item.name,target.name),wanted:target.name};
+    identity={matched:isNamedItem(item,target.name),wanted:target.name};
     comps.push({key:'identity',label:'Correct unique',max:30,points:identity.matched?30:0,detail:identity.matched?'This is the guide’s '+target.name+'.':'The guide uses '+target.name+' here. '+(item.name||'This item')+' is a different item and can’t be crafted into it.'});
   }
   let aspect=null;

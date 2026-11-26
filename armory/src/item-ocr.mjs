@@ -20,6 +20,8 @@ const RARITY_WORDS='common|magic|rare|legendary|unique|mythic|set|ancestral|sacr
 const TYPE_WORDS='helm|chest(?:\\s+armor)?|gloves|pants|boots|amulet|ring|sword|axe|mace|scythe|polearm|staff|wand|dagger|bow|crossbow|focus|totem|shield|glaive|quarterstaff|flail|charm|seal|horadric seal|weapon';
 const TYPE_LINE=new RegExp('\\b('+RARITY_WORDS+')\\b.*\\b('+TYPE_WORDS+')\\b','i');
 const ITEM_POWER=/\bitem\s+power\b/i;
+// "Unique Two-Handed" / "Scythe": the type line can wrap, so a line that opens with a rarity starts it
+const RARITY_START=new RegExp('^(?:ancestral\\s+)?(?:'+RARITY_WORDS+')\\b(?!\\s+(?:aspect|power)\\b)','i');
 const BULLET=/^[◆◇♦•·▪●○✦✧★☆*]\s*/;
 const STAR_BULLET=/^[✦✧★☆*]/;
 
@@ -111,13 +113,14 @@ export function extractTooltip(rawLines){
   for(const s of scored.slice(1))if(s.c!==chosen)for(const l of s.c.lines)skipped.push({text:l.text,reason:s.equipped?'equipped item (compare view)':'outside the item tooltip'});
   const equippedCol=scored.find(s=>s.equipped&&s.c!==chosen)?.c||null;
   let lines=chosen.lines.filter(l=>!EQUIPPED_HEADER.test(l.text));
-  const anchor=lines.find(l=>TYPE_LINE.test(l.text));
+  const isTypeLine=(l,i,arr)=>TYPE_LINE.test(l.text)||RARITY_START.test(l.text)&&arr[i+1]&&TYPE_LINE.test(l.text+' '+arr[i+1].text);
+  const anchor=lines.find(isTypeLine);
   if(anchor){
     const width=Math.max(0.2,...lines.map(l=>l.r.right-l.r.left));
     lines=lines.filter(l=>{const ok=l.r.left<=anchor.r.left+width*0.55&&l.r.right>=anchor.r.left-width*0.1;if(!ok)skipped.push({text:l.text,reason:'outside the item tooltip'});return ok});
   }
   // Start at the item name: the line(s) just above the rarity/type line
-  const typeIndex=lines.findIndex(l=>TYPE_LINE.test(l.text));
+  const typeIndex=lines.findIndex(isTypeLine);
   if(typeIndex>0){
     let start=typeIndex-1;
     const above=lines[start-1];
@@ -165,18 +168,32 @@ export function extractTooltip(rawLines){
 // ---------------------------------------------------------------- tooltip parsing
 const RARITIES=['Mythic','Unique','Legendary','Rare','Magic','Common','Set'];
 const num=s=>s==null||s===''?null:Number(String(s).replace(/,/g,''));
-const STAT_LINE=/^[\d,]+(?:\.\d+)?\s+(armor|damage per second|attacks per second|damage per hit|block chance)\b|^(armor|damage per second|attacks per second)\b/i;
+const STAT_LINE=/^[\d,]+(?:\.\d+)?\s+(armor|damage per second|attacks per second|damage per hit|block chance)\b|^(armor|damage per second|attacks per second)\b|\]\s*damage per hit\b|\b(?:damage per second|attacks per second)\b/i;
 const NUMBER_RE=/([+x×-]?)\s*([\d,]+(?:\.\d+)?)\s*(%)?\s*(\[[x×+]\])?/;
 const RANGE_RE=/\+?\[\s*([\d,]+(?:\.\d+)?)\s*%?\s*[-–]\s*([\d,]+(?:\.\d+)?)\s*\]\s*%?/;
+// Fixed affixes show a single value instead of a range: "+35.0% Attack Speed [35.0]%", "+30 Essence Regeneration +[30]"
+const FIXED_RE=/\+?\[\s*([\d,]+(?:\.\d+)?)\s*%?\s*\]\s*%?/;
+
+/**
+ * Tesseract misreads tooltip brackets: "]" as ")" or "1" ("[35.01%" for "[35.0]%"), and drops a "[" ("+250 - 298)").
+ * Tooltip numbers have at most one decimal, so a second decimal digit before "%" inside a bracket is the "]".
+ */
+export function repairBrackets(text){
+  let t=String(text||'');
+  t=t.replace(/\[([^\[\]]*?\d)\s*\)/g,'[$1]');                                   // [168 - 281) -> [168 - 281]
+  t=t.replace(/\[([^\[\]]*?\d+\.\d)1\s*%/g,'[$1]%');                            // [35.01% -> [35.0]%
+  t=t.replace(/(^|\s)\+?([\d,]+(?:\.\d+)?\s*[-–]\s*[\d,]+(?:\.\d+)?)\s*[\])](\s*%?)/g,(m,a,r,pc)=>a+'['+r+']'+pc);  // +250 - 298) -> [250 - 298]
+  return t;
+}
 
 /** Read the first value, its unit and its [min - max] range from an affix or power sentence. */
 export function readValue(text){
-  const t=String(text||'');
+  const t=repairBrackets(text);
   const m=t.match(NUMBER_RE);if(!m)return {value:null,unit:null,min:null,max:null,name:t.trim()};
-  const range=t.match(RANGE_RE);
+  const range=t.match(RANGE_RE)||(()=>{const f=t.match(FIXED_RE);return f?[f[0],f[1],f[1]]:null})();
   const multiplier=m[1]==='x'||m[1]==='×'||/\[[x×]\]/.test(m[4]||'');
   const unit=m[3]||(range&&/%/.test(range[0]))?(multiplier?'%[x]':'%'):'flat';
-  let name=t.replace(RANGE_RE,' ').replace(NUMBER_RE,' # ');
+  let name=t.replace(RANGE_RE,' ').replace(FIXED_RE,' ').replace(NUMBER_RE,' # ');
   name=name.replace(/\s+/g,' ').trim();
   // Plain stat affixes ("# Intelligence", "# to Blood Skills") become the stat name; sentences keep a # marker
   const simple=name.match(/^#\s*(?:to\s+)?(.+)$/i);
@@ -194,19 +211,22 @@ export function parseTooltip(text,{slot=null}={}){
     const line=raw.trim()?cleanLine(raw):'';
     if(!line){pendingBreak=true;continue}
     if(isInterfaceLine(line))continue;
-    const bullet=BULLET.test(line),star=STAR_BULLET.test(line),body=line.replace(BULLET,'');
+    const bullet=BULLET.test(line),star=STAR_BULLET.test(line),body=repairBrackets(line.replace(BULLET,''));
     const prev=entries.at(-1);
-    const unbalanced=prev&&(prev.text.split('[').length>prev.text.split(']').length||/[-–]\s*$/.test(prev.text));
+    const unbalanced=prev&&(prev.text.split('[').length>prev.text.split(/[\])]/).length||/[-–]\s*$/.test(prev.text));
+    if(unbalanced&&pendingBreak&&/^[\d,.\s]+[\])]?\s*%?$|^\[[\d,.\s–-]+[\])1]?\s*%?$/.test(body))pendingBreak=false;   // "281]" or "[16.0 - 46.0]%" after a blank line
     // "+3,000 Maximum Life" followed by "You gain 22% ..." -> the sentence is new; "Multiplier [13 - 25]%" is a tail
     const prevSimpleStat=prev&&!unbalanced&&/^[+x×-]?\s*[\d,.]+/.test(prev.text)&&prev.text.split(/\s+/).length<=8&&!/[.!]$/.test(prev.text);
     const sentenceStart=/^[A-Z][a-z]+\s+\S+\s+\S+/.test(body)&&!RANGE_RE.test(body);
-    const startsNew=!prev||pendingBreak||bullet||TYPE_LINE.test(body)||ITEM_POWER.test(body)||STAT_LINE.test(body)||/^empty socket/i.test(body)||(/^[+x×]?\s*\d/.test(body)&&!unbalanced&&!/^\d[\d,.]*\s*\]/.test(body))||(prevSimpleStat&&sentenceStart);
+    const startsNew=!prev||pendingBreak||bullet||TYPE_LINE.test(body)||(RARITY_START.test(body)&&!entries.some(e=>TYPE_LINE.test(e.text)||RARITY_START.test(e.text)))||ITEM_POWER.test(body)||STAT_LINE.test(body)||/^empty socket/i.test(body)||(/^[+x×]?\s*\d/.test(body)&&!unbalanced&&!/^\d[\d,.]*\s*\]/.test(body))||(prevSimpleStat&&sentenceStart);
     if(pendingBreak){paragraph++;pendingBreak=false}
     if(startsNew)entries.push({text:body,bullet,star,paragraph});
-    else prev.text=(prev.text+' '+body).replace(/\s+/g,' ').replace(/\[\s+/g,'[').replace(/\s+\]/g,']');
+    else prev.text=repairBrackets((prev.text+' '+body).replace(/\s+/g,' ').replace(/\[\s+/g,'[').replace(/\s+\]/g,']'));
   }
-  const typeIndex=entries.findIndex(e=>TYPE_LINE.test(e.text));
-  const nameParts=typeIndex>0?entries.slice(0,typeIndex).map(e=>e.text):[entries[0]?.text||''];
+  let typeIndex=entries.findIndex(e=>TYPE_LINE.test(e.text));
+  if(typeIndex<0)typeIndex=entries.findIndex((e,i)=>i>0&&i<4&&RARITY_START.test(e.text));
+  // typeIndex 0: the name wasn't read (decorative title fonts often defeat OCR); the catalog can still identify the item
+  const nameParts=typeIndex>0?entries.slice(0,typeIndex).map(e=>e.text):typeIndex===0?[]:[entries[0]?.text||''];
   const name=nameParts.join(' ').replace(/\s+/g,' ').trim()||'Unidentified item';
   const typeLine=typeIndex>=0?entries[typeIndex].text:'';
   const rarity=RARITIES.find(r=>new RegExp('\\b'+r+'\\b','i').test(typeLine))||'Unknown';
@@ -220,7 +240,8 @@ export function parseTooltip(text,{slot=null}={}){
     if(ip){item.itemPower=num(ip[1])+(ip[2]?num(ip[2]):0);continue}
     if(/^empty socket/i.test(e.text)){item.sockets.push({name:'Empty socket',empty:true});continue}
     if(STAT_LINE.test(e.text)){const k=e.text.match(/(armor|damage per second|attacks per second|damage per hit|block chance)/i)[1].toLowerCase();item.stats[k]=num(e.text.match(/[\d,]+(?:\.\d+)?/)?.[0]);continue}
-    const isAffix=(e.bullet||/^[+x×-]?\s*\d/.test(e.text))&&(affixParagraph==null||e.paragraph===affixParagraph);
+    const isAffix=(e.bullet||/^[+x×-]?\s*\d/.test(e.text))&&(affixParagraph==null||e.paragraph===affixParagraph||!/[.!]$/.test(e.text)&&e.text.split(/\s+/).length<=9);
+    if(!item.affixes.length&&!powerEntries.length&&!/\d/.test(e.text)&&e.text.split(/\s+/).length<=2&&!e.bullet){item.label??=e.text;continue}   // runeword recipe and similar labels
     if(isAffix&&!powerEntries.length){
       affixParagraph??=e.paragraph;
       const v=readValue(e.text);
