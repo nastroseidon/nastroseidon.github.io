@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#120d0e">
+  <meta name="armory-edition" content="web">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: blob: https://assets-ng.maxroll.gg; connect-src 'self' data: blob: https://api.github.com https://planners.maxroll.gg https://assets-ng.maxroll.gg; worker-src 'self' blob:; frame-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'">
+  <meta name="referrer" content="no-referrer">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Armory">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="assets/icons/favicon-32.png">
+  <link rel="apple-touch-icon" href="assets/icons/apple-touch-icon.png">
+  <title>Sanctuary Armory</title>
+  <link rel="stylesheet" href="app.css">
+</head>
+<body>
+  <div class="app">
+    <aside class="rail">
+      <div class="brand"><span class="brandmark">✦</span><div><small>DIABLO IV COMPANION</small><strong>Sanctuary<br>Armory</strong></div></div>
+      <nav aria-label="Main navigation">
+        <button class="nav active" data-view="home">◈ <span>Characters</span></button>
+        <button class="nav" data-view="dashboard">⚔ <span>Dashboard</span></button>
+        <button class="nav" data-view="inventory">▣ <span>Shared Stash</span></button>
+        <button class="nav" data-view="builds">◇ <span>Build Library</span></button>
+        <button class="nav" data-view="progression">▤ <span>Build Progression</span></button>
+        <button class="nav" data-view="seasons">↻ <span>Season Rollover</span></button>
+        <button class="nav" data-view="history">◷ <span>History</span></button>
+      </nav>
+      <div class="railbottom"><button id="syncBtn">⇅ Sync across devices</button><p id="syncStatus" class="syncstatus"></p><button id="backupBtn">↓ Export Backup</button><button id="restoreBtn">↑ Import Backup</button><input type="file" id="restoreFile" accept="application/json" hidden><p>Your records stay on this device, plus your private GitHub repository if you turn on sync.</p><p id="appVersion" class="appversion"></p></div>
+    </aside>
+    <div class="shell">
+      <header class="topbar"><button id="menuBtn" class="mobilemenu" aria-label="Toggle menu">☰</button><div id="crumb">CHARACTER ARCHIVE</div><div class="topactions"><span class="localbadge">● LOCAL</span><button class="secondary" id="scanBtn">Scan Item</button><button class="primary" id="importGuideBtn">Import Build</button></div></header>
+      <main id="main" tabindex="-1"></main>
+    </div>
+  </div>
+  <dialog id="modal"><div class="modalbar"><div><small id="modalEyebrow"></small><h2 id="modalTitle"></h2></div><button id="modalClose" aria-label="Close dialog">✕</button></div><div id="modalContent"></div></dialog>
+  <div id="toast" role="status" aria-live="polite"></div>
+  <script src="viewer/js/gamedata.js"></script>
+  <script src="viewer/js/richtext.js"></script>
+  <script src="viewer/js/model.js"></script>
+  <script src="pwa.js"></script>
+  <script type="module" src="app.mjs"></script>
+</body>
+</html>
