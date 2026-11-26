@@ -70,24 +70,45 @@ export function buildRequest({imageBase64,mediaType,knownAffixes=[],model=DEFAUL
   };
 }
 
-/** Send the request. Browser calls need the direct-access header (the viewer's own key, on their own device). */
-export async function callClaude(body,{apiKey,fetchImpl=globalThis.fetch,browser=false,signal}={}){
+async function post(body,{apiKey,fetchImpl=globalThis.fetch,browser=false,signal}={}){
   if(!apiKey)throw new Error('No Anthropic API key set');
   const headers={'content-type':'application/json','x-api-key':apiKey,'anthropic-version':API_VERSION};
   if(browser)headers['anthropic-dangerous-direct-browser-access']='true';
-  const response=await fetchImpl(API_URL,{method:'POST',headers,body:JSON.stringify(body),signal});
+  let response;
+  try{response=await fetchImpl(API_URL,{method:'POST',headers,body:JSON.stringify(body),signal})}
+  catch(error){if(error?.name==='AbortError')throw error;throw new Error('Could not reach Claude ('+(error?.message||'network error')+')')}
   const data=await response.json().catch(()=>null);
   if(!response.ok){
     const message=data?.error?.message||('HTTP '+response.status);
-    const err=new Error(response.status===401?'The Anthropic API key was not accepted':response.status===429?'Claude is busy or the key is over its limit, try again shortly':'Claude could not read the image: '+message);
+    const err=new Error(response.status===401?'The Anthropic API key was not accepted ('+message+')'
+      :response.status===429?'Claude is busy or the key is over its limit, try again shortly'
+      :/credit balance/i.test(message)?'The Anthropic account has no credit left: add some at console.anthropic.com'
+      :'Claude answered with an error: '+message);
     err.status=response.status;throw err;
   }
+  return data;
+}
+
+/** Send the request. Browser calls need the direct-access header (the viewer's own key, on their own device). */
+export async function callClaude(body,options={}){
+  const data=await post(body,options);
   if(data.stop_reason==='refusal')throw new Error('Claude declined to read this image');
   if(data.stop_reason==='max_tokens')throw new Error('Claude’s answer was cut off');
   const text=(data.content||[]).filter(b=>b.type==='text').map(b=>b.text).join('');
   let parsed;try{parsed=JSON.parse(text)}catch{throw new Error('Claude returned an answer that is not item data')}
   return {reading:parsed,usage:data.usage,model:data.model};
 }
+
+/** A tiny request (a few tokens, no image) that checks the key and the model. Throws the same errors as callClaude. */
+export async function testKey({model=DEFAULT_MODEL,...options}){
+  await post({model,max_tokens:5,messages:[{role:'user',content:'Reply with OK.'}]},options);
+  return true;
+}
+
+/** Remove what pasting on a phone can add to a key: spaces, line breaks, zero-width characters, quotes. */
+export function cleanApiKey(key){return String(key||'').replace(/[\s\u200b-\u200d\u2060\ufeff"'“”‘’]/g,'')}
+/** Does this look like an Anthropic API key? */
+export function looksLikeApiKey(key){return /^sk-ant-[A-Za-z0-9_-]{20,}$/.test(key)}
 
 const title=s=>/[a-z]/.test(s)?s:String(s||'').toLowerCase().replace(/\b([a-z])/g,c=>c.toUpperCase()).replace(/'S\b/g,"'s");
 const clamp=v=>Math.max(0,Math.min(1,Number(v)||0));

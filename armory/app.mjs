@@ -485,27 +485,39 @@ function claudeBoxHtml(){
       :'<p class="muted small" id="claudeServerNote">On this Mac, Claude uses the key in the ANTHROPIC_API_KEY environment variable when the server starts.</p>')
     +'<label class="field"><span class="fieldlabel">Model</span><select id="claudeModel"></select></label>'
     +'<label class="field inline"><input type="checkbox" id="claudeOn"'+(c.enabled===false?'':' checked')+'> Use Claude when available</label>'
-    +'<div class="toolbar"><button type="button" class="secondary small" id="claudeSave">Save</button></div></details>';
+    +'<div class="toolbar"><button type="button" class="secondary small" id="claudeSave">Save</button>'+(ON_WEB?'<button type="button" class="quiet small" id="claudeTest">Test key</button>':'')+'</div><p class="muted small" id="claudeTestResult" role="status"></p></details>';
 }
 async function wireClaudeBox(){
   if(!$('claudeBox'))return;
-  const {CLAUDE_MODELS,DEFAULT_MODEL}=await import('./src/claude-reader.mjs'),c=claudeConfig();
+  const {CLAUDE_MODELS,DEFAULT_MODEL,cleanApiKey,looksLikeApiKey,testKey}=await import('./src/claude-reader.mjs'),c=claudeConfig();
   $('claudeModel').innerHTML=CLAUDE_MODELS.map(m=>'<option value="'+m.id+'"'+((c.model||DEFAULT_MODEL)===m.id?' selected':'')+'>'+esc(m.label)+'</option>').join('');
   if(ON_SERVER&&!(await claudeServerReady())&&$('claudeServerNote'))$('claudeServerNote').textContent='No ANTHROPIC_API_KEY is set on this Mac, so items are read on the device. Start the server with ANTHROPIC_API_KEY=sk-ant-… to use Claude.';
   if($('claudeState'))$('claudeState').textContent=(await claudeReady())?'(on)':'(off)';
   $('claudeSave').onclick=async()=>{
     const next={...claudeConfig(),model:$('claudeModel').value,enabled:$('claudeOn').checked};
-    if($('claudeKey'))next.apiKey=$('claudeKey').value.trim();
+    if($('claudeKey')){next.apiKey=cleanApiKey($('claudeKey').value);$('claudeKey').value=next.apiKey}
     setClaudeConfig(next);if($('claudeState'))$('claudeState').textContent=(await claudeReady())?'(on)':'(off)';
+    if(next.apiKey&&!looksLikeApiKey(next.apiKey)){$('claudeTestResult').textContent='Saved, but this doesn’t look like an Anthropic API key: it should start with sk-ant- and be about 100 characters long.';return}
     toast((await claudeReady())?'Claude will read your item photos':'Claude reading is off');
+  };
+  if($('claudeTest'))$('claudeTest').onclick=async()=>{
+    const out=$('claudeTestResult'),apiKey=cleanApiKey($('claudeKey').value),model=$('claudeModel').value;
+    if(!apiKey){out.textContent='Paste your API key first.';return}
+    out.textContent='Checking the key with Claude…';
+    try{await testKey({apiKey,model,browser:true});out.textContent='✓ The key works with '+model+'. Tap Save if you haven’t yet.'}
+    catch(error){out.textContent='✗ '+error.message}
   };
 }
 /** Text recognition: Apple Vision through the local server, or Tesseract on this device in the web edition. */
 async function recognizeFile(file,onProgress){
+  let claudeError=null;
   if(await claudeReady()){
     try{onProgress?.({status:'reading with Claude'});return await readWithClaude(file)}
-    catch(error){toast(error.message+'. Using on-device text recognition instead.')}
+    catch(error){claudeError=error.message;toast(error.message+'. Using on-device text recognition instead.')}
   }
+  return {...await recognizeOnDevice(file,onProgress),claudeError};
+}
+async function recognizeOnDevice(file,onProgress){
   if(ON_SERVER){
     const response=await fetch('api/ocr',{method:'POST',headers:{'Content-Type':file.type},body:file}),result=await response.json();
     if(!response.ok)throw new Error(result.error);
@@ -567,6 +579,12 @@ function withCatalog(item){
   return snapToTypePool(item,itemCatalog,{classIndex:ci});
 }
 function scanTypeKey(it){return it.catalogMatch?itemCatalog?.items.find(i=>i.key===it.catalogMatch.key)?.type:typeByName(itemCatalog,it.itemType,it.slot)?.type}
+/** Which reader produced this scan, and why Claude wasn't used when it was meant to be. */
+function engineNote(){
+  const o=scan.ocr;if(!o)return '';
+  if(o.claudeError)return '<p class="notice">Claude couldn’t read this photo: '+esc(o.claudeError)+'. It was read on this device instead, which is much less accurate, so check every value.</p>';
+  return /^Claude/.test(o.engine||'')?'<p class="muted small">Read by '+esc(o.engine)+'.</p>':'';
+}
 function catalogBadge(it){
   if(!itemCatalog)return '';
   const m=it.catalogMatch;
@@ -662,7 +680,7 @@ function scanVerify(){
   const image=scan.cropData||scan.imageData;
   const skipped=scan.ocr?.tooltip?.skipped||[];
   scanStep(2,'Verify the item','<div class="scanlayout"><div class="scanimage">'+(image?'<img id="scanImg" src="'+esc(image)+'" alt="Scanned item">'+(scan.cropData?'<button type="button" class="quiet small" id="toggleCrop">Show full image</button>':''):'<div class="empty">'+(scan.manual?'Manual entry':'No image (pasted text)')+'</div>')+(skipped.length?'<details class="ignored"><summary>Ignored text ('+skipped.length+')</summary><ul>'+skipped.map(s=>'<li><span>'+esc(s.text)+'</span><small>'+esc(s.reason)+'</small></li>').join('')+'</ul></details>':'')+'</div>'
-    +'<form id="verifyForm" class="scanfields" autocomplete="off"><p class="muted">'+(scan.manual?'Pick the item from the list, then enter the numbers from the game.':'Check each value against the image. Mark tempered and Greater Affixes; the tooltip text alone can’t show them.')+'</p>'+catalogBadge(it)+'<div class="fieldrow">'+field('Item name','name',it.name)+select('Slot','slot',Object.keys(slotNames).map(s=>({value:s,label:slotNames[s]})),it.slot)+'</div><div class="fieldrow">'+select('Rarity','rarity',['Unknown','Legendary','Unique','Mythic','Set','Rare','Magic'],it.rarity||'Unknown')+(itemCatalog&&typesForSlot(itemCatalog,it.slot).length?select('Item type','itemType',[{value:'',label:'Choose…'},...[...new Set([...typesForSlot(itemCatalog,it.slot).map(t=>t.typeName),...(it.itemType?[it.itemType]:[])])].map(t=>({value:t,label:t}))],it.itemType||''):field('Item type','itemType',it.itemType||''))+field('Item power','itemPower',it.itemPower??'','number')+'</div>'
+    +'<form id="verifyForm" class="scanfields" autocomplete="off"><p class="muted">'+(scan.manual?'Pick the item from the list, then enter the numbers from the game.':'Check each value against the image. Mark tempered and Greater Affixes; the tooltip text alone can’t show them.')+'</p>'+engineNote()+catalogBadge(it)+'<div class="fieldrow">'+field('Item name','name',it.name)+select('Slot','slot',Object.keys(slotNames).map(s=>({value:s,label:slotNames[s]})),it.slot)+'</div><div class="fieldrow">'+select('Rarity','rarity',['Unknown','Legendary','Unique','Mythic','Set','Rare','Magic'],it.rarity||'Unknown')+(itemCatalog&&typesForSlot(itemCatalog,it.slot).length?select('Item type','itemType',[{value:'',label:'Choose…'},...[...new Set([...typesForSlot(itemCatalog,it.slot).map(t=>t.typeName),...(it.itemType?[it.itemType]:[])])].map(t=>({value:t,label:t}))],it.itemType||''):field('Item type','itemType',it.itemType||''))+field('Item power','itemPower',it.itemPower??'','number')+'</div>'
     +'<h3>Affixes</h3>'+affixCountHtml(it)+affixPoolNote(it)+'<div class="tablewrap"><table class="affixedit"><thead><tr><th>Affix</th><th>Value</th><th>Unit</th><th>Range</th><th>Type</th><th title="Greater Affix">GA</th><th></th></tr></thead><tbody>'+(it.affixes||[]).map(affixRowHtml).join('')+'</tbody></table></div><button type="button" class="secondary small" id="addAffix">+ Add affix</button>'
     +'<h3>Aspect / unique power</h3>'+select('This power is','powerChoice',powerOptions,powerChoice)+'<label class="field"><span class="fieldlabel">Power text</span><textarea name="powerDescription" rows="3">'+esc(it.power?.description||'')+'</textarea></label><div class="fieldrow">'+field('Value','powerValue',it.power?.value??'')+field('Range min','powerMin',it.power?.min??'')+field('Range max','powerMax',it.power?.max??'')+'</div>'
     +field('Sockets (comma separated)','sockets',(it.sockets||[]).map(s=>s.name).join(', '))
