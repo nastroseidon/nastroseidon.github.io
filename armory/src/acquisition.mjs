@@ -2,6 +2,8 @@
 // it, and what changes in the next variant (a different item, or an advanced version of the same one).
 // Facts come from the item catalog (game data) and the imported guide target; nothing is invented.
 
+import {isNamedItem} from './item-grade.mjs';
+
 const lower=s=>String(s||'').trim().toLowerCase();
 const plural=(n,w)=>n+' '+w+(n===1?'':/(x|s|ch|sh)$/.test(w)?'es':'s');
 
@@ -105,6 +107,6 @@ export function nextTargetFor(slot,currentSlots,nextSlots){
 /** Is the equipped item already the guide's item for this slot? */
 export function equippedMatches(item,target){
   if(!item||!target)return false;
-  if(target.identityRequired||/unique|mythic/i.test(target.rarity||''))return lower(item.name)===lower(target.name);
+  if(target.identityRequired||/unique|mythic/i.test(target.rarity||''))return isNamedItem(item,target.name);
   return Boolean(target.aspect&&lower(item.power?.name)===lower(target.aspect));
 }

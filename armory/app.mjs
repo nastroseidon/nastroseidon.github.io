@@ -6,7 +6,7 @@ import {gradeItem,improvementPlan,recommendation,aspectMatch} from './src/item-g
 import {howToGet,nextStep,nextTargetFor,equippedMatches,catalogEntry} from './src/acquisition.mjs';
 import {githubClient,runSync} from './src/sync.mjs';
 import {importSavedGuide} from './src/importers/guide-pages.mjs';
-import {searchItems,matchItemName,identifyItem,applyCatalogItem,affixChoices,typesForSlot,typeByName} from './src/catalog-match.mjs';
+import {searchItems,matchItemName,identifyItem,applyCatalogItem,affixChoices,allAffixChoices,filterChoices,canonicalChoice,resolveTypeName,typesForSlot,typeByName} from './src/catalog-match.mjs';
 
 const $=id=>document.getElementById(id);
 // Editions: 'server' (local Node server on the Mac), 'portable' (single file, no server), 'web' (GitHub Pages / home screen app)
@@ -506,8 +506,11 @@ function scanDefaultSlot(){const b=build();return Object.keys(b?.slots||{}).find
 function withCatalog(item){
   if(!itemCatalog||!item?.name)return item;
   const ci=classIndexOf(char(),build());
-  const entry=matchItemName(itemCatalog,item.name,{classIndex:ci,slot:item.slot})||identifyItem(itemCatalog,{name:item.name,rarity:item.rarity,itemType:item.itemType,slot:item.slot,classIndex:ci});
-  return entry?applyCatalogItem(item,entry,itemCatalog,{classIndex:ci}):item;
+  const entry=matchItemName(itemCatalog,item.name,{classIndex:ci,slot:item.slot})||identifyItem(itemCatalog,{name:item.name,rarity:item.rarity,itemType:item.itemType,slot:item.slot,classIndex:ci,affixes:item.affixes});
+  if(entry)return applyCatalogItem(item,entry,itemCatalog,{classIndex:ci});
+  // No catalog item (legendaries): still snap a misread type line so the affix list can be limited to it
+  const typeName=resolveTypeName(itemCatalog,item.itemType);
+  return typeName&&typeName!==item.itemType?{...item,itemType:typeName}:item;
 }
 function scanTypeKey(it){return it.catalogMatch?itemCatalog?.items.find(i=>i.key===it.catalogMatch.key)?.type:typeByName(itemCatalog,it.itemType,it.slot)?.type}
 function catalogBadge(it){
@@ -519,7 +522,7 @@ function catalogBadge(it){
 }
 function scanTarget(slot){const c=char(),b=build(c);return {c,b,target:b?.slots?.[targetSlot(b,slot)]||null}}
 function affixRowHtml(a,i){
-  return '<tr data-affix-row="'+i+'"'+(a.fixed?' data-fixed="1" class="fixedaffix"':'')+'><td><input data-f="name" list="affixPool" value="'+esc(a.name||'')+'" aria-label="Affix name"'+(a.fixed?' readonly title="Fixed affix of this item"':'')+'>'+(a.fixed?'<small class="fixedtag">fixed</small>':a.snappedFrom?'<small class="muted">read as “'+esc(a.snappedFrom)+'”</small>':'')+'</td><td><input data-f="value" inputmode="decimal" value="'+esc(a.value??'')+'" aria-label="Value" placeholder="value"></td><td><select data-f="unit" aria-label="Unit">'+scanUnits.map(u=>'<option value="'+u.value+'"'+(u.value===(a.unit||'flat')?' selected':'')+'>'+u.label+'</option>').join('')+'</select></td><td class="range"><input data-f="min" inputmode="decimal" value="'+esc(a.min??'')+'" aria-label="Range minimum" placeholder="min"><span>–</span><input data-f="max" inputmode="decimal" value="'+esc(a.max??'')+'" aria-label="Range maximum" placeholder="max"></td><td><select data-f="kind" aria-label="Affix type">'+scanKinds.map(k=>'<option value="'+k.value+'"'+(k.value===(a.kind||'base')?' selected':'')+'>'+k.label+'</option>').join('')+'</select>'+(a.kindGuess?'<small class="muted">guess</small>':'')+'</td><td class="center"><input type="checkbox" data-f="ga"'+(a.greaterAffix?' checked':'')+' aria-label="Greater Affix"></td><td>'+(a.fixed?'':'<button type="button" class="quiet small" data-remove-affix="'+i+'" aria-label="Remove affix">✕</button>')+'</td></tr>';
+  return '<tr data-affix-row="'+i+'"'+(a.fixed?' data-fixed="1" class="fixedaffix"':'')+'><td><input data-f="name" value="'+esc(a.name||'')+'" aria-label="Affix name"'+(a.fixed?' readonly title="Fixed affix of this item"':'')+'>'+(a.fixed?'<small class="fixedtag">fixed</small>':a.snappedFrom?'<small class="muted">read as “'+esc(a.snappedFrom)+'”</small>':'')+'</td><td><input data-f="value" inputmode="decimal" value="'+esc(a.value??'')+'" aria-label="Value" placeholder="value"></td><td><select data-f="unit" aria-label="Unit">'+scanUnits.map(u=>'<option value="'+u.value+'"'+(u.value===(a.unit||'flat')?' selected':'')+'>'+u.label+'</option>').join('')+'</select></td><td class="range"><input data-f="min" inputmode="decimal" value="'+esc(a.min??'')+'" aria-label="Range minimum" placeholder="min"><span>–</span><input data-f="max" inputmode="decimal" value="'+esc(a.max??'')+'" aria-label="Range maximum" placeholder="max"></td><td><select data-f="kind" aria-label="Affix type">'+scanKinds.map(k=>'<option value="'+k.value+'"'+(k.value===(a.kind||'base')?' selected':'')+'>'+k.label+'</option>').join('')+'</select>'+(a.kindGuess?'<small class="muted">guess</small>':'')+'</td><td class="center"><input type="checkbox" data-f="ga"'+(a.greaterAffix?' checked':'')+' aria-label="Greater Affix"></td><td>'+(a.fixed?'':'<button type="button" class="quiet small" data-remove-affix="'+i+'" aria-label="Remove affix">✕</button>')+'</td></tr>';
 }
 function affixCountHtml(it){
   const rolled=(it.affixes||[]).filter(a=>a.kind!=='temper'&&a.kind!=='implicit').length,fixed=(it.affixes||[]).filter(a=>a.fixed&&a.kind!=='implicit').length;
@@ -527,13 +530,71 @@ function affixCountHtml(it){
   if(m&&/unique|mythic|set/i.test(it.rarity||''))return '<p class="muted small">'+esc(it.name)+' has '+m.affixCount+' affixes'+(fixed?' ('+fixed+' fixed)':'')+'. Tempers go in extra rows marked Tempered.</p>';
   return '<label class="field inline"><span class="fieldlabel">Number of affixes</span><select id="affixCount">'+Array.from({length:max-Math.max(fixed,0)+1},(_,i)=>i+fixed).map(n=>'<option'+(n===rolled?' selected':'')+'>'+n+'</option>').join('')+'</select></label>';
 }
+/** Affix names the verify form offers for a row: the item type's pool, or every class affix for tempers. */
+function scanAffixPool(it){return itemCatalog?affixChoices(itemCatalog,scanTypeKey(it),classIndexOf(char(),build())):[]}
+function rowChoices(row){
+  if(!itemCatalog)return {choices:[],strict:false};
+  const kind=row?.querySelector('[data-f="kind"]')?.value||'base',ci=classIndexOf(char(),build());
+  if(kind==='temper'||kind==='implicit')return {choices:allAffixChoices(itemCatalog,ci),strict:false};
+  const pool=scanAffixPool(scan.item);
+  // A unique's own (fixed) affixes are always legal on it even when outside the type's random pool
+  const own=(scan.item.affixes||[]).filter(a=>a.fixed).map(a=>a.name);
+  return pool.length?{choices:[...new Set([...pool,...own])].sort((a,b)=>a.localeCompare(b)),strict:true}:{choices:allAffixChoices(itemCatalog,ci),strict:false};
+}
+function affixPoolNote(it){
+  if(!itemCatalog)return '';
+  const n=scanAffixPool(it).length;
+  return n?'<p class="muted small">Tap an affix name to search the '+n+' affixes a '+esc(it.itemType||'item of this type')+' can roll.</p>':'<p class="muted small">Choose the item type above to limit the affix list to what it can roll.</p>';
+}
+/**
+ * Searchable dropdown on a text input. search(query) returns [{value, note?}]. With strict, a value not
+ * in the list is marked invalid when the field is left. Works with touch (iPhone) and the keyboard.
+ */
+function attachPicker(input,{search,strict=false}){
+  const host=input.closest('dialog')||document.body;
+  const list=document.createElement('ul');list.className='pickerlist';list.setAttribute('role','listbox');list.hidden=true;host.appendChild(list);
+  input.setAttribute('autocomplete','off');input.setAttribute('autocapitalize','off');input.setAttribute('spellcheck','false');input.setAttribute('role','combobox');input.setAttribute('aria-expanded','false');
+  let items=[],active=-1;
+  const isStrict=()=>typeof strict==='function'?strict():strict;
+  const place=()=>{const r=input.getBoundingClientRect(),below=window.innerHeight-r.bottom,up=below<180&&r.top>below;list.style.left=Math.max(4,r.left)+'px';list.style.width=Math.max(r.width,220)+'px';list.style.maxHeight=Math.max(140,Math.min(320,(up?r.top:below)-12))+'px';list.style.top=up?'auto':r.bottom+2+'px';list.style.bottom=up?(window.innerHeight-r.top+2)+'px':'auto'};
+  const render=()=>{
+    items=search(input.value)||[];active=items.length?0:-1;
+    list.innerHTML=items.length?items.map((o,i)=>'<li role="option" data-i="'+i+'"'+(i===active?' class="active"':'')+'>'+esc(o.value)+(o.note?'<small>'+esc(o.note)+'</small>':'')+'</li>').join(''):'<li class="none">'+(input.value?'No match':'Start typing')+'</li>';
+    place();list.hidden=false;input.setAttribute('aria-expanded','true');
+  };
+  const close=()=>{list.hidden=true;input.setAttribute('aria-expanded','false')};
+  const pick=i=>{const o=items[i];if(!o)return;input.value=o.value;input.classList.remove('invalid');close();input.dispatchEvent(new Event('change',{bubbles:true}))};
+  const highlight=i=>{active=i;list.querySelectorAll('li[data-i]').forEach(li=>li.classList.toggle('active',Number(li.dataset.i)===i));list.querySelector('li.active')?.scrollIntoView({block:'nearest'})};
+  input.addEventListener('focus',()=>{input.select?.();render()});
+  input.addEventListener('input',()=>{input.classList.remove('invalid');render()});
+  input.addEventListener('keydown',e=>{
+    if(list.hidden&&e.key==='ArrowDown'){render();e.preventDefault();return}
+    if(e.key==='ArrowDown'&&items.length){highlight((active+1)%items.length);e.preventDefault()}
+    else if(e.key==='ArrowUp'&&items.length){highlight((active-1+items.length)%items.length);e.preventDefault()}
+    else if(e.key==='Enter'&&!list.hidden&&active>=0){pick(active);e.preventDefault()}
+    else if(e.key==='Escape'&&!list.hidden){close();e.preventDefault();e.stopPropagation()}
+  });
+  // pointerdown (not click) so the choice lands before the input loses focus
+  list.addEventListener('pointerdown',e=>{const li=e.target.closest('li[data-i]');if(li){e.preventDefault();pick(Number(li.dataset.i))}});
+  input.addEventListener('blur',()=>{
+    close();
+    const v=input.value.trim();if(!v||!isStrict())return;
+    const all=search('').map(o=>o.value),canon=canonicalChoice(v,all);
+    if(canon){if(canon!==input.value){input.value=canon;input.dispatchEvent(new Event('change',{bubbles:true}))}input.classList.remove('invalid')}
+    else input.classList.add('invalid');
+  });
+  const reflow=()=>{if(!list.hidden)place()};
+  window.addEventListener('resize',reflow);host.addEventListener('scroll',reflow,true);
+  // Remove the list with its input (the verify form re-renders often)
+  new MutationObserver((_,obs)=>{if(!input.isConnected){list.remove();window.removeEventListener('resize',reflow);host.removeEventListener('scroll',reflow,true);obs.disconnect()}}).observe(host,{childList:true,subtree:true});
+}
 function readVerifyForm(){
   const f=$('verifyForm');if(!f)return;
   const val=n=>f.elements[n]?.value?.trim()??'',numOrNull=v=>{const n=Number(String(v).replace(/,/g,''));return v===''||!Number.isFinite(n)?null:n};
   const it=scan.item;
   it.name=val('name');it.slot=val('slot');it.rarity=val('rarity');it.itemType=val('itemType')||null;it.itemPower=numOrNull(val('itemPower'));
   it.affixes=[...f.querySelectorAll('[data-affix-row]')].map(row=>{const g=k=>row.querySelector('[data-f="'+k+'"]');return {name:g('name').value.trim(),value:numOrNull(g('value').value.trim()),unit:g('unit').value,min:numOrNull(g('min').value.trim()),max:numOrNull(g('max').value.trim()),kind:g('kind').value,greaterAffix:g('ga').checked,...(row.dataset.fixed?{fixed:true}:{})}}).filter(a=>a.name||a.fixed);
-  if(it.catalogMatch&&it.name!==it.catalogMatch.name){delete it.catalogMatch;delete it.catalogKey;for(const a of it.affixes)delete a.fixed}
+  if(it.catalogMatch&&it.name!==it.catalogMatch.name){delete it.catalogMatch;delete it.catalogKey;it.affixes=it.affixes.filter(a=>!a.fixed||a.value!=null);for(const a of it.affixes)delete a.fixed}
   const description=val('powerDescription'),choice=val('powerChoice');
   it.power=description||choice?{name:choice==='other'||!choice?(/unique|mythic/i.test(it.rarity)?it.name:null):choice,description,value:numOrNull(val('powerValue')),min:numOrNull(val('powerMin')),max:numOrNull(val('powerMax')),unit:it.power?.unit||null}:null;
   it.sockets=val('sockets').split(',').map(s=>s.trim()).filter(Boolean).map(name=>({name,empty:/^empty/i.test(name)}));
@@ -547,8 +608,8 @@ function scanVerify(){
   const image=scan.cropData||scan.imageData;
   const skipped=scan.ocr?.tooltip?.skipped||[];
   scanStep(2,'Verify the item','<div class="scanlayout"><div class="scanimage">'+(image?'<img id="scanImg" src="'+esc(image)+'" alt="Scanned item">'+(scan.cropData?'<button type="button" class="quiet small" id="toggleCrop">Show full image</button>':''):'<div class="empty">'+(scan.manual?'Manual entry':'No image (pasted text)')+'</div>')+(skipped.length?'<details class="ignored"><summary>Ignored text ('+skipped.length+')</summary><ul>'+skipped.map(s=>'<li><span>'+esc(s.text)+'</span><small>'+esc(s.reason)+'</small></li>').join('')+'</ul></details>':'')+'</div>'
-    +'<form id="verifyForm" class="scanfields" autocomplete="off"><p class="muted">'+(scan.manual?'Pick the item from the list, then enter the numbers from the game.':'Check each value against the image. Mark tempered and Greater Affixes; the tooltip text alone can’t show them.')+'</p>'+catalogBadge(it)+'<datalist id="catalogNames"></datalist><div class="fieldrow">'+field('Item name','name',it.name)+select('Slot','slot',Object.keys(slotNames).map(s=>({value:s,label:slotNames[s]})),it.slot)+'</div><div class="fieldrow">'+select('Rarity','rarity',['Unknown','Legendary','Unique','Mythic','Set','Rare','Magic'],it.rarity||'Unknown')+(itemCatalog&&typesForSlot(itemCatalog,it.slot).length?select('Item type','itemType',[{value:'',label:'Choose…'},...[...new Set([...typesForSlot(itemCatalog,it.slot).map(t=>t.typeName),...(it.itemType?[it.itemType]:[])])].map(t=>({value:t,label:t}))],it.itemType||''):field('Item type','itemType',it.itemType||''))+field('Item power','itemPower',it.itemPower??'','number')+'</div>'
-    +'<h3>Affixes</h3>'+affixCountHtml(it)+'<datalist id="affixPool">'+(itemCatalog?affixChoices(itemCatalog,scanTypeKey(it),classIndexOf(char(),build())).map(l=>'<option value="'+esc(l)+'">').join(''):'')+'</datalist><div class="tablewrap"><table class="affixedit"><thead><tr><th>Affix</th><th>Value</th><th>Unit</th><th>Range</th><th>Type</th><th title="Greater Affix">GA</th><th></th></tr></thead><tbody>'+(it.affixes||[]).map(affixRowHtml).join('')+'</tbody></table></div><button type="button" class="secondary small" id="addAffix">+ Add affix</button>'
+    +'<form id="verifyForm" class="scanfields" autocomplete="off"><p class="muted">'+(scan.manual?'Pick the item from the list, then enter the numbers from the game.':'Check each value against the image. Mark tempered and Greater Affixes; the tooltip text alone can’t show them.')+'</p>'+catalogBadge(it)+'<div class="fieldrow">'+field('Item name','name',it.name)+select('Slot','slot',Object.keys(slotNames).map(s=>({value:s,label:slotNames[s]})),it.slot)+'</div><div class="fieldrow">'+select('Rarity','rarity',['Unknown','Legendary','Unique','Mythic','Set','Rare','Magic'],it.rarity||'Unknown')+(itemCatalog&&typesForSlot(itemCatalog,it.slot).length?select('Item type','itemType',[{value:'',label:'Choose…'},...[...new Set([...typesForSlot(itemCatalog,it.slot).map(t=>t.typeName),...(it.itemType?[it.itemType]:[])])].map(t=>({value:t,label:t}))],it.itemType||''):field('Item type','itemType',it.itemType||''))+field('Item power','itemPower',it.itemPower??'','number')+'</div>'
+    +'<h3>Affixes</h3>'+affixCountHtml(it)+affixPoolNote(it)+'<div class="tablewrap"><table class="affixedit"><thead><tr><th>Affix</th><th>Value</th><th>Unit</th><th>Range</th><th>Type</th><th title="Greater Affix">GA</th><th></th></tr></thead><tbody>'+(it.affixes||[]).map(affixRowHtml).join('')+'</tbody></table></div><button type="button" class="secondary small" id="addAffix">+ Add affix</button>'
     +'<h3>Aspect / unique power</h3>'+select('This power is','powerChoice',powerOptions,powerChoice)+'<label class="field"><span class="fieldlabel">Power text</span><textarea name="powerDescription" rows="3">'+esc(it.power?.description||'')+'</textarea></label><div class="fieldrow">'+field('Value','powerValue',it.power?.value??'')+field('Range min','powerMin',it.power?.min??'')+field('Range max','powerMax',it.power?.max??'')+'</div>'
     +field('Sockets (comma separated)','sockets',(it.sockets||[]).map(s=>s.name).join(', '))
     +'<div class="toolbar sticky"><button type="button" class="quiet" id="scanBack">Back</button><button type="submit" class="primary">Confirm &amp; grade</button></div></form></div>');
@@ -560,9 +621,12 @@ function scanVerify(){
   f.elements.slot.onchange=()=>{readVerifyForm();scanVerify()};
   if(f.elements.itemType?.tagName==='SELECT')f.elements.itemType.onchange=()=>{readVerifyForm();scanVerify()};
   const nameInput=f.elements.name,ci=classIndexOf(char(),build());
-  nameInput.setAttribute('list','catalogNames');
-  const fillNames=()=>{if(!itemCatalog)return;$('catalogNames').innerHTML=searchItems(itemCatalog,nameInput.value,{classIndex:ci,slot:scan.item.slot,limit:25}).map(i=>'<option value="'+esc(i.name)+'">'+esc(i.rarity+' '+i.typeName)+'</option>').join('')};
-  nameInput.addEventListener('input',fillNames);fillNames();
+  if(itemCatalog)attachPicker(nameInput,{search:q=>searchItems(itemCatalog,q,{classIndex:ci,slot:scan.item.slot,limit:25}).map(i=>({value:i.name,note:i.rarity+' '+i.typeName})),strict:false});
+  // Affix names: a searchable list of the affixes this item type can roll (tempers: any affix for the class)
+  f.querySelectorAll('[data-affix-row]:not([data-fixed]) [data-f="name"]').forEach(input=>{
+    const row=input.closest('[data-affix-row]');
+    attachPicker(input,{search:q=>filterChoices(rowChoices(row).choices,q).map(value=>({value})),strict:()=>rowChoices(row).strict});
+  });
   nameInput.addEventListener('change',()=>{
     if(!itemCatalog)return;
     const entry=matchItemName(itemCatalog,nameInput.value,{classIndex:ci,slot:scan.item.slot,threshold:0.9});
@@ -579,7 +643,20 @@ function scanVerify(){
     for(let i=rows.length-1;i>=0&&have>want;i--)if(isRolled(rows[i])&&!rows[i].fixed){rows.splice(i,1);have--}
     scanVerify();
   };
-  f.onsubmit=e=>{e.preventDefault();readVerifyForm();if(!scan.item.name){toast('Enter the item name');return}scanGrade()};
+  f.onsubmit=e=>{
+    e.preventDefault();
+    // Every affix must be one this item can roll: snap near misses, stop on anything else
+    let bad=null;
+    f.querySelectorAll('[data-affix-row]:not([data-fixed]) [data-f="name"]').forEach(input=>{
+      const {choices,strict}=rowChoices(input.closest('[data-affix-row]'));
+      if(!input.value.trim()||!choices.length)return;
+      const canon=canonicalChoice(input.value,choices);
+      if(canon){input.value=canon;input.classList.remove('invalid')}
+      else if(strict){input.classList.add('invalid');bad??=input}
+    });
+    if(bad){bad.focus();toast('“'+bad.value+'” isn’t an affix this '+(scan.item.itemType||'item')+' can roll. Pick one from the list.');return}
+    readVerifyForm();if(!scan.item.name){toast('Enter the item name');return}scanGrade();
+  };
 }
 const scoreBand=s=>s==null?'unknown':s>=80?'a3':s>=60?'a2':s>=40?'a1':'a0';
 function scoreCard(label,name,grade,potential){
@@ -615,7 +692,7 @@ function scanGrade(){
     +'<p class="muted">Graded for <strong>'+esc(b?.name||'no build')+(b?.variantName?' · '+esc(b.variantName):'')+'</strong> · '+esc(slotNames[slot]||slot)+(target?' · guide item: <strong>'+esc(target.name||'any')+'</strong>'+(target.aspect?' with '+esc(target.aspect):''):'')+'</p>'
     +'<div class="scorecards">'+scoreCard('This item',it.name,g,plan.potential)+scoreCard('Equipped',current?.name,gc,planCurrent?.potential)+'</div>'
     +'<div class="recommend '+rec.verdict+'">'+esc(rec.text)+(plan.potential!=null&&gc?.score!=null&&rec.verdict!=='replace'&&plan.potential>gc.score+2?' With crafting it could reach '+plan.potential+', above the equipped '+gc.score+'.':'')+'</div>'+decisionBar
-    +(target?'<details class="sectionbox" open><summary>How the score is built</summary><table class="gradetable"><thead><tr><th></th><th>This item</th><th>Equipped</th></tr></thead><tbody>'+compRows+'</tbody></table></details><details class="sectionbox" open><summary>Affixes vs the guide</summary><table class="gradetable"><thead><tr><th>Guide affix</th><th>Guide value</th><th>This item</th><th>Equipped</th></tr></thead><tbody>'+affixRows+'</tbody></table>'+(extras?'<p class="muted">Not used by the guide:</p><ul class="compactlist">'+extras+'</ul>':'')+'</details>':'')
+    +(target?'<details class="sectionbox" open><summary>How the score is built</summary><table class="gradetable"><thead><tr><th></th><th>This item</th><th>Equipped</th></tr></thead><tbody>'+compRows+'</tbody></table></details><details class="sectionbox" open><summary>Affixes vs the guide</summary><table class="gradetable"><thead><tr><th>Guide affix</th><th>Guide value</th><th>This item<small>'+esc(it.name||'')+'</small></th><th>Equipped<small>'+esc(current?.name||'nothing equipped')+'</small></th></tr></thead><tbody>'+affixRows+'</tbody></table>'+(extras?'<p class="muted">Not used by the guide:</p><ul class="compactlist">'+extras+'</ul>':'')+'</details>':'')
     +(planHtml?'<section class="sectionbox"><h3>Improve this item'+(plan.potential!=null&&plan.potential>(g?.score??0)?' · up to '+plan.potential+'/100':'')+'</h3><p class="muted">Highlighted steps are included in the estimate (new rolls assumed average). Check costs and eligibility in game.</p><div class="stations">'+planHtml+'</div></section>':'')
     +(target?'<details class="sectionbox"'+(equippedMatches(it,target)?'':' open')+'><summary>'+(equippedMatches(it,target)?'This is the guide’s item · next steps':'How to get the guide’s item')+'</summary>'+acquisitionHtml(c,b,slot,equippedMatches(it,target)?it:current)+'</details>':'')
     +'<details class="sectionbox"><summary>Other uses before salvage</summary>'+usesHtml(it)+'</details>'

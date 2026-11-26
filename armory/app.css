@@ -126,3 +126,12 @@ code{background:#140e0e;padding:1px 5px;border-radius:3px;font-size:.85em}
   .stations{grid-template-columns:1fr!important}
   .toolbar.decision button{flex:1 1 45%}
 }
+/* Searchable picker (affix names, item names) */
+.pickerlist{position:fixed;z-index:60;margin:0;padding:4px 0;list-style:none;overflow-y:auto;-webkit-overflow-scrolling:touch;background:#1b1314;border:1px solid var(--gold);box-shadow:0 14px 34px #000c;border-radius:3px}
+.pickerlist li{padding:10px 12px;cursor:pointer;font-size:.92rem;line-height:1.3;border-bottom:1px solid #2f2221}
+.pickerlist li:last-child{border-bottom:0}
+.pickerlist li small{display:block;color:var(--muted);font-size:.74rem}
+.pickerlist li.active,.pickerlist li:hover{background:#4a2e28;color:var(--gold2)}
+.pickerlist li.none{color:var(--muted);cursor:default;background:none}
+input.invalid,.affixedit input.invalid{border-color:var(--red);box-shadow:0 0 0 1px var(--red);background:#2a1414}
+@media (max-width:760px){.affixedit input[data-f="name"],.pickerlist li{font-size:16px}}
