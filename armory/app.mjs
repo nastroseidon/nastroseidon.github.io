@@ -428,18 +428,50 @@ function parseAffixLines(text){return text.split(/\n/).map(line=>line.split('|')
 async function readAsDataURL(file){return new Promise((resolve,reject)=>{const r=new FileReader();r.onload=()=>resolve(r.result);r.onerror=()=>reject(r.error);r.readAsDataURL(file)})}
 async function sha256(file){const bytes=await file.arrayBuffer();const hash=await crypto.subtle.digest('SHA-256',bytes);return [...new Uint8Array(hash)].map(x=>x.toString(16).padStart(2,'0')).join('')}
 const isRing=slot=>/^ring[12]$/.test(slot||'');
-// Both ring slots side by side; the chosen one is what the rest of the screen compares against
-function ringPickerHtml(opts,selected,attrs){
-  const fmt=d=>d==null?'':d>0?'+'+d:String(d);
-  return '<div class="ringpick"><div class="ringpick-label">Replace which ring?</div><div class="ringpick-opts">'+opts.map(o=>'<button type="button" class="ringopt'+(o.s===selected?' on':'')+'" '+attrs(o.s)+' aria-pressed="'+(o.s===selected)+'"><small>'+esc(slotNames[o.s])+(o.best?' · best swap':'')+'</small><strong>'+esc(o.current?.name||'Empty slot')+'</strong><span><b class="'+scoreBand(o.currentScore)+'">'+(o.currentScore??'—')+'</b>'+(o.currentScore!=null?'/100':'')+(o.delta!=null?' <em class="'+(o.delta>0?'up':o.delta<0?'down':'')+'">'+fmt(o.delta)+' if swapped</em>':'')+'</span></button>').join('')+'</div></div>';
+const CHARM_SLOTS=['charm1','charm2','charm3','charm4','charm5','charm6'];
+// Slots a found item could go into: both rings, or every charm slot
+function slotGroup(slot){return isRing(slot)?['ring1','ring2']:/^charm\d$/.test(slot||'')?CHARM_SLOTS:null}
+// Talisman set bonuses a swap would lose or gain (thresholds come from the build's set bonuses)
+function setSwapNotes(c,b,candidate,slot){
+  if(!slot.startsWith('charm'))return [];
+  const counts={};for(const s of CHARM_SLOTS){const i=itemFor(c,s);if(i?.setName&&i.id!==candidate.id)counts[i.setName]=(counts[i.setName]||0)+1}
+  const after={...counts},out=itemFor(c,slot);
+  if(out?.setName&&out.id!==candidate.id)after[out.setName]--;
+  if(candidate.setName)after[candidate.setName]=(after[candidate.setName]||0)+1;
+  const tiers=name=>Object.keys(b?.talisman?.setBonuses?.[name]||{}).filter(k=>/^\d+$/.test(k)).map(Number);
+  const notes=[];
+  for(const name of new Set([...Object.keys(counts),...Object.keys(after)])){
+    const was=counts[name]||0,now=after[name]||0;
+    if(!tiers(name).length){if(now<was)notes.push({bad:true,soft:true,text:name+' set drops to '+now+(now===1?' piece':' pieces')});continue}
+    for(const t of tiers(name)){
+      if(was>=t&&now<t)notes.push({bad:true,text:'Breaks '+name+' '+t+'-piece bonus'});
+      if(was<t&&now>=t)notes.push({bad:false,text:'Completes '+name+' '+t+'-piece bonus'});
+    }
+  }
+  return notes;
 }
-function bestRing(opts){const best=[...opts].sort((a,b)=>(b.delta??-999)-(a.delta??-999))[0];if(best)best.best=opts.filter(o=>o.delta===best.delta).length===1;return best?.s}
+function slotOptions(candidate,c,b=build(c)){
+  // Charms: every filled slot plus the first open one (open slots are interchangeable)
+  let group=slotGroup(candidate.slot)||[];
+  if(group===CHARM_SLOTS){const open=group.filter(s=>!itemFor(c,s)||itemFor(c,s).id===candidate.id);group=group.filter(s=>!open.includes(s)||s===open[0])}
+  const opts=group.map(s=>{const t=b?.slots?.[targetSlot(b,s)]||null,cur=itemFor(c,s),own=cur?.id===candidate.id,p=t?gradeItem(candidate,t)?.score:null,e=cur&&!own&&t?gradeItem(cur,t)?.score??null:null;return {s,current:own?null:cur,currentScore:e,delta:p!=null?p-(e??0):null,notes:setSwapNotes(c,b,candidate,s)}});
+  // Breaking a set bonus counts against a slot when picking the best swap
+  const rank=o=>(o.delta??-999)-o.notes.filter(n=>n.bad).reduce((t,n)=>t+(n.soft?8:25),0)+10*o.notes.filter(n=>!n.bad).length;
+  const best=[...opts].sort((x,y)=>rank(y)-rank(x)||(x.current?1:0)-(y.current?1:0))[0];
+  if(best)best.best=opts.filter(o=>rank(o)===rank(best)).length===1;
+  opts.bestSlot=best?.s;return opts;
+}
+// All candidate slots side by side; the chosen one is what the rest of the screen compares against
+function slotPickerHtml(opts,selected,attrs){
+  const fmt=d=>d==null?'':d>0?'+'+d:String(d),charm=opts[0]?.s.startsWith('charm');
+  return '<div class="ringpick'+(charm?' charmpick':'')+'"><div class="ringpick-label">Replace which '+(charm?'charm':'ring')+'?</div><div class="ringpick-opts">'+opts.map(o=>'<button type="button" class="ringopt'+(o.s===selected?' on':'')+'" '+attrs(o.s)+' aria-pressed="'+(o.s===selected)+'"><small>'+esc(slotNames[o.s])+(o.best?' · best swap':'')+'</small><strong>'+esc(o.current?.name||'Empty slot')+'</strong>'+(o.current?.setName?'<small class="setname">'+esc(o.current.setName)+'</small>':'')+'<span><b class="'+scoreBand(o.currentScore)+'">'+(o.currentScore??'—')+'</b>'+(o.currentScore!=null?'/100':'')+(o.delta!=null?' <em class="'+(o.delta>0?'up':o.delta<0?'down':'')+'">'+fmt(o.delta)+' if swapped</em>':'')+'</span>'+o.notes.map(n=>'<i class="setnote '+(n.bad?'bad':'good')+'">'+(n.bad?'⚠ ':'✓ ')+esc(n.text)+'</i>').join('')+'</button>').join('')+'</div></div>';
+}
 function comparisonHtml(candidate,slotOverride){
   const c=char(),b=build(c);let slot=candidate.slot,picker='',pick=null;
-  if(isRing(slot)&&c){
-    const opts=['ring1','ring2'].map(s=>{const t=b?.slots?.[targetSlot(b,s)]||null,cur=itemFor(c,s),own=cur?.id===candidate.id,p=t?gradeItem(candidate,t)?.score:null,e=cur&&!own&&t?gradeItem(cur,t)?.score??null:null;return {s,current:own?null:cur,currentScore:e,delta:p!=null?p-(e??0):null}});
-    slot=slotOverride||bestRing(opts);pick=opts.find(o=>o.s===slot);
-    picker=ringPickerHtml(opts,slot,s=>'data-action="compare-ring" data-id="'+esc(candidate.id+'|'+s)+'"');
+  if(slotGroup(slot)&&c){
+    const opts=slotOptions(candidate,c,b);
+    slot=slotOverride||opts.bestSlot;pick=opts.find(o=>o.s===slot);
+    picker=slotPickerHtml(opts,slot,s=>'data-action="compare-ring" data-id="'+esc(candidate.id+'|'+s)+'"');
   }
   const current=itemFor(c,slot),target=b?.slots?.[targetSlot(b,slot)];
   const proposed=scoreItem({...candidate,slot:targetSlot(b,slot)},b);
@@ -449,8 +481,8 @@ function comparisonHtml(candidate,slotOverride){
 }
 function compareSavedItem(id,ringSlot){
   const item=state.items.find(i=>i.id===id);if(!item)return;
-  const html=comparisonHtml(item,ringSlot),slot=isRing(item.slot)?(html.match(/class="ringopt on" data-action="compare-ring" data-id="[^"|]*\|(ring[12])"/)?.[1]||item.slot):item.slot,cur=itemFor(char(),slot);
-  openModal('Compare '+item.name,'SAVED ITEM',html+'<div class="toolbar">'+button(isRing(slot)?'Equip as '+slotNames[slot]+(cur&&cur.id!==id?' (replace '+cur.name+')':''):'Equip on selected character','equip-saved',id+'|'+slot,'primary')+button('Keep in shared stash','stash-saved',id,'secondary')+button('Mark ignored','ignore-saved',id,'quiet')+'</div>');
+  const html=comparisonHtml(item,ringSlot),slot=slotGroup(item.slot)?(html.match(/class="ringopt on" data-action="compare-ring" data-id="[^"|]*\|((?:ring|charm)\d)"/)?.[1]||item.slot):item.slot,cur=itemFor(char(),slot);
+  openModal('Compare '+item.name,'SAVED ITEM',html+'<div class="toolbar">'+button(slotGroup(slot)?'Equip as '+slotNames[slot]+(cur&&cur.id!==id?' (replace '+cur.name+')':''):'Equip on selected character','equip-saved',id+'|'+slot,'primary')+button('Keep in shared stash','stash-saved',id,'secondary')+button('Mark ignored','ignore-saved',id,'quiet')+'</div>');
 }
 // ----- Scan Item: 1 upload → 2 verify (item image left, editable fields right) → 3 grade against the build
 let scan=null;
@@ -783,15 +815,13 @@ const scoreBand=s=>s==null?'unknown':s>=80?'a3':s>=60?'a2':s>=40?'a1':'a0';
 function scoreCard(label,name,grade,potential){
   return '<div class="scorecard"><small>'+esc(label)+'</small><strong class="'+scoreBand(grade?.score)+'">'+(grade?.score??'—')+'<span>/100</span></strong><div>'+esc(name||'Nothing recorded')+'</div>'+(potential!=null&&grade?.score!=null&&potential>grade.score?'<small class="muted">'+potential+' with crafting</small>':'')+'</div>';
 }
-function ringOptions(it,c){const opts=['ring1','ring2'].map(s=>{const {target}=scanTarget(s),cur=itemFor(c,s);const g=gradeItem(it,target),gc=cur?gradeItem(cur,target):null;return {s,current:cur,currentScore:gc?.score??null,delta:g?.score!=null?g.score-(gc?.score??0):null}});bestRing(opts);return opts}
 function scanGrade(){
   const it=scan.item,c=char();
-  // Rings: compare with the ring slot where this item helps most
+  // Rings and charms: compare with the slot where this item helps most, or the one picked
   let slot=it.slot;
-  if(/^ring[12]$/.test(slot)&&!scan.ringLocked){
-    slot=bestRing(ringOptions(it,c));it.slot=slot;
-  }
-  const ringPicker=isRing(slot)&&c?ringPickerHtml(ringOptions(it,c),slot,s=>'data-ring-pick="'+s+'"'):'';
+  const opts=c&&slotGroup(slot)?slotOptions(it,c):null;
+  if(opts&&!scan.ringLocked){slot=opts.bestSlot;it.slot=slot}
+  const ringPicker=opts?slotPickerHtml(opts,slot,s=>'data-ring-pick="'+s+'"'):'';
   const {b,target}=scanTarget(slot),current=itemFor(c,slot);
   const ctx={codex:(state.codex||[]).filter(a=>!a.characterId||a.characterId===c?.id),craftingRules:state.craftingRules||[]};
   const g=gradeItem(it,target),gc=current?gradeItem(current,target):null;
@@ -1005,7 +1035,7 @@ document.addEventListener('click',async event=>{
     else if(action==='scan-item')scanDialog();
     else if(action==='compare-item')compareSavedItem(id);
     else if(action==='compare-ring'){const [itemId,slot]=id.split('|');const m=$('modal'),top=m?.scrollTop;compareSavedItem(itemId,slot);if(m)m.scrollTop=top}
-    else if(action==='equip-saved'){const [itemId,slotPick]=id.split('|');const item=state.items.find(i=>i.id===itemId),slot=slotPick||item.slot;if(!char())throw new Error('Select a character first');state=equipItem(state,char().id,itemId,slot);const moved=state.items.find(i=>i.id===itemId);if(moved&&isRing(slot))moved.slot=slot;await save();closeModal();view='dashboard';render()}
+    else if(action==='equip-saved'){const [itemId,slotPick]=id.split('|');const item=state.items.find(i=>i.id===itemId),slot=slotPick||item.slot;if(!char())throw new Error('Select a character first');state=equipItem(state,char().id,itemId,slot);const moved=state.items.find(i=>i.id===itemId);if(moved&&slotGroup(slot))moved.slot=slot;await save();closeModal();view='dashboard';render()}
     else if(action==='stash-saved'||action==='ignore-saved'){
       const item=state.items.find(i=>i.id===id);
       if(item.location==='withdrawal')throw new Error('Use Season Rollover & Withdrawals to review and transfer this item');
