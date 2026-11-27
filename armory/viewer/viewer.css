@@ -276,6 +276,11 @@ ul.affixes.implicit { border-bottom: 1px solid var(--line); padding-bottom: 6px;
 
 /* notes */
 .notes { line-height: 1.6; }
+details.notes-col > summary { cursor: pointer; list-style: none; }
+details.notes-col > summary::-webkit-details-marker { display: none; }
+details.notes-col > summary h3 { display: inline-block; }
+details.notes-col > summary::after { content: ' ▾'; color: var(--muted); }
+details.notes-col:not([open]) > summary::after { content: ' ▸'; }
 .notes p { margin: 0 0 0.6em; }
 .notes ul, .notes ol { margin: 0 0 0.6em; padding-left: 20px; }
 .notes li { margin: 2px 0; }

@@ -136,3 +136,58 @@ code{background:#140e0e;padding:1px 5px;border-radius:3px;font-size:.85em}
 input.invalid,.affixedit input.invalid{border-color:var(--red);box-shadow:0 0 0 1px var(--red);background:#2a1414}
 @media (max-width:760px){.affixedit input[data-f="name"],.pickerlist li{font-size:16px}}
 .checkflag{display:block;color:#e0a040;font-size:.78em}
+/* Phone layout for the character dashboard and build progression (0.12). Desktop keeps every section visible. */
+.dashtabs,.needfilters,.buildnotice,.entryneeds{display:none}
+.statgrid{display:grid;gap:9px}
+.uncaptured{margin-top:4px}.uncaptured summary{cursor:pointer;color:var(--muted);font-size:.74rem;padding:8px 2px}
+@media(max-width:650px){
+  .dash .heading h1{font-size:1.6rem;margin:2px 0 4px}
+  .dash .lead{font-size:.84rem;margin:2px 0}
+  .dash .headingcontrols{display:flex;gap:6px;margin-top:10px}
+  .dash .headingcontrols button{flex:1;padding:8px 6px;font-size:.78rem}
+  .dash .dashnotice{display:none}
+  .dash .buildnotice{display:block;margin:14px 0 0}
+  .dashtabs{display:flex;position:sticky;top:74px;z-index:4;margin:14px -16px 0;padding:0 6px;background:#171112f0;backdrop-filter:blur(12px);border-bottom:1px solid #5b3d37;overflow-x:auto;scrollbar-width:none}
+  .dashtabs::-webkit-scrollbar{display:none}
+  .dashtabs button{flex:1 0 auto;background:transparent;border:0;border-bottom:2px solid transparent;color:var(--muted);font-weight:600;font-size:.8rem;padding:12px 8px 10px;white-space:nowrap}
+  .dashtabs button.on{color:var(--text);border-bottom-color:var(--gold)}
+  .dashtabs button:focus-visible{outline:2px solid var(--gold2);outline-offset:-2px}
+  .dashtabs b{font-weight:600;font-size:.68rem;color:var(--gold);margin-left:5px}
+  .dash .dashtab:not(.on){display:none}
+  .dash .four{margin-top:4px}
+  .dash .panel{background:none;border:0;box-shadow:none}
+  .dash .panelhead{display:none}
+  .dash .panelbody{padding:10px 0 0;gap:6px}
+  .needfilters{display:flex;gap:6px;overflow-x:auto;scrollbar-width:none;padding-bottom:4px}
+  .needfilters button{flex:0 0 auto;background:transparent;border:1px solid #644b44;border-radius:999px;color:var(--muted);font-size:.76rem;font-weight:600;padding:5px 12px}
+  .needfilters button.on{border-color:var(--gold);color:var(--gold2);background:#51322d55}
+  .needfilters span{color:var(--gold);font-size:.7rem;margin-left:2px}
+  .dash-filter-missing [data-tab=needs] .entry:not([data-kind=missing]),.dash-filter-upgrade [data-tab=needs] .entry:not([data-kind=upgrade]),.dash-filter-goal [data-tab=needs] .entry:not([data-kind=goal]){display:none}
+  /* Compact item rows: slot and rank, then name with status on the right, then the aspect/power line */
+  .dash .entry{display:grid;grid-template-columns:minmax(0,1fr) auto;grid-template-areas:"top top" "name pills" "aspect pills" "bar bar" "needs needs";column-gap:10px;padding:8px 10px}
+  .dash .entrytop{grid-area:top;font-size:.62rem}
+  .dash .entry strong{grid-area:name;font-size:.9rem;margin:3px 0 1px;line-height:1.25}
+  .dash .entry>p:not(.entryneeds){grid-area:aspect;font-size:.72rem}
+  .dash .entry .rollbar{grid-area:bar;margin-top:6px;height:3px}
+  .dash .entrypills{grid-area:pills;align-self:center;display:flex;flex-direction:column;align-items:flex-end;gap:4px;max-width:118px;text-align:right}
+  .dash .entry .pill{margin:0!important;font-size:.58rem;padding:2px 5px;line-height:1.3}
+  .dash .entry .targetsummary{display:none}
+  .dash .entryneeds{display:block;grid-area:needs;margin-top:5px;font-size:.72rem;color:#eab0a7}
+  .statgrid{display:grid;grid-template-columns:1fr 1fr;column-gap:14px}
+  .dash .sectionbox{margin-top:12px}
+  /* Build progression: variants become a swipeable strip and the selected variant's setup comes right after it */
+  .progpage{display:flex;flex-direction:column}
+  .progpage .heading h1{font-size:1.6rem}
+  .progpage .notice{font-size:.74rem;padding:9px 11px;margin-bottom:6px}
+  .progpage .variantdetail{order:1}.progpage .nextvariant{order:2}.progpage .availability{order:3}
+  .progpage .phasegrid{display:flex;overflow-x:auto;scroll-snap-type:x mandatory;scroll-padding-inline:16px;gap:8px;margin:10px -16px 0;padding:2px 16px 8px;scrollbar-width:none}
+  .progpage .phasegrid::-webkit-scrollbar{display:none}
+  .progpage .phasecard{flex:0 0 46%;scroll-snap-align:start;padding:10px 11px}
+  .progpage .phasecard .eyebrow{font-size:.58rem}
+  .progpage .phasecard h2{font-size:1.05rem;margin:4px 0}
+  .progpage .phasecard p{font-size:.7rem;margin:0}
+  .progpage .phasecard .pill.prov{display:none}
+  .progpage .phasecard .toolbar{margin-top:8px;display:grid;gap:5px}
+  .progpage .phasecard .toolbar button{padding:6px;font-size:.72rem}
+  .progpage .sectionbox{padding:12px}
+}
