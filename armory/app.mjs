@@ -133,8 +133,8 @@ function entryHtml(item,slot,b,rank,kind){
   const pos=item?.power?rollPercent(item.power):null;
   const correctUnique=item&&['Unique','Mythic'].includes(item.rarity)&&target?.name===item.name;
   const badge=!item?'Missing':!target?'Targets not imported':correctUnique?'Correct Unique / review rolls':item.power?.name===target?.aspect?'Correct aspect / review base':score?.complete?'On target':score?.missing?.length>=2?'Upgrade item':'Review';
-  const plan=affixPlan(target),summary=kind!=='queue'?'<div class="targetsummary"><span>Target base affixes</span>'+plan.primary.map((a,i)=>'<div class="a'+a.weight+'">'+(i+1)+'. '+esc(a.name)+'</div>').join('')+(plan.greaterAffixPriority.length?'<p>Seek GA: '+esc(plan.greaterAffixPriority.join(' → '))+'</p>':'')+(plan.masterworkPriority.length?'<p>Blacksmith: '+esc(plan.masterworkPriority.join(' → '))+'</p>':'')+'</div>':'';
-  const needs=item&&score?.missing?.length?'<p class="entryneeds">Needs '+esc(score.missing.map(a=>a.name).join(', '))+'</p>':'';
+  const summary=kind!=='queue'&&target?priorityHtml(target,score,item):'';
+  const needs=kind==='queue'&&item&&score?.missing?.length?'<p class="entryneeds">Needs '+esc(score.missing.map(a=>a.name).join(', '))+'</p>':'';
   return '<button class="entry '+(!item?'missing':'')+'" data-kind="'+(!item?'missing':score?.complete?'ready':'upgrade')+'" data-action="item-detail" data-id="'+esc(kind==='queue'?slot:item?.id||slot)+'" data-slot="'+esc(slot||'')+'"><div class="entrytop"><span>'+esc(slotNames[slot]||slot||'Objective')+'</span><span>#'+rank+'</span></div><strong>'+esc(item?.name||target?.name||'Unrecorded item')+'</strong><p class="'+(item&&target?.aspect&&item.power?.name?(item.power.name.toLowerCase()===target.aspect.toLowerCase()?'a3':'a0'):'')+'">'+esc(item?.power?.name||target?.aspect||target?.item||'Open for acquisition details')+(item?.power?.value!=null?' · '+item.power.value+(item.power.unit||''):'')+'</p>'+(pos!==null?'<div class="rollbar"><span style="width:'+pos+'%"></span></div>':'')+'<span class="entrypills"><span class="pill '+(!item?'bad':score?.complete?'good':'prov')+'">'+esc(badge)+'</span>'+(pos!==null&&pos>=75?'<span class="pill" style="margin-left:5px;color:var(--pink)">Top 25% roll</span>':'')+'</span>'+needs+summary+'</button>';
 }
 let dashTab='needs',needFilter='all';
@@ -145,6 +145,18 @@ function dashTabsHtml(tabs){return '<nav class="dashtabs" aria-label="Character 
 function needFiltersHtml(counts){
   const opts=[['all','All'],['missing','Missing'],['upgrade','Upgrades'],['goal','Goals']].filter(([k])=>k==='all'||counts[k]);
   return opts.length>2?'<div class="needfilters" role="group" aria-label="Filter the list">'+opts.map(([k,l])=>'<button type="button" data-action="need-filter" data-id="'+k+'" class="'+(k===needFilter?'on':'')+'" aria-pressed="'+(k===needFilter)+'">'+l+' <span>'+counts[k]+'</span></button>').join('')+'</div>':'';
+}
+// The build's stat priority for one slot, compact: affixes in guide order with ✓/✕ against the equipped item,
+// ↑ for the masterwork target, then the recommended temper, sockets and aspect
+function priorityHtml(target,score,item){
+  const plan=affixPlan(target),rows=[...plan.primary].sort((a,b)=>(a.priorityRank??99)-(b.priorityRank??99));
+  const sockets=(target.sockets||[]).filter(x=>x?.name);
+  if(!rows.length&&!target.temper&&!sockets.length)return '';
+  const missing=new Set((score?.missing||[]).map(a=>a.name));
+  const short=t=>{const first=String(t||'').split(/(?<=[.;])\s|\n/)[0];return first.length>70?first.slice(0,68)+'…':first};
+  const list=rows.map((a,i)=>{const miss=item&&missing.has(a.name);return '<li class="'+(item?(miss?'miss':'have'):'')+'"><span class="pn">'+(i+1)+'.</span><span class="pa">'+esc(a.name)+(a.masterworkTarget?' <b class="mw" title="Masterwork this affix first">↑</b>':'')+(a.greaterAffix?' <b class="gax" title="Look for this as a Greater Affix">GA</b>':'')+'</span>'+(item?'<span class="pm" aria-label="'+(miss?'missing':'on your item')+'">'+(miss?'✕':'✓')+'</span>':'')+'</li>'}).join('');
+  const line=(k,v)=>'<div class="prioline"><span class="pk">'+k+'</span><span>'+v+'</span></div>';
+  return '<div class="prio">'+(list?'<ol>'+list+'</ol>':'')+(target.temper?line('Temper',esc(target.temper)):'')+(sockets.length?line('Sockets',sockets.map(x=>'<span class="sock" title="'+esc(x.text||'')+'">'+esc(x.name)+(x.text?' <small>'+esc(short(x.text))+'</small>':'')+'</span>').join('')):'')+(target.aspect&&!['Unique','Mythic'].includes(target.rarity)?line('Aspect',esc(target.aspect)):'')+'</div>';
 }
 function renderDashboard(){
   const c=char();if(!c)return '<div class="page"><div class="empty">Create a character to begin.</div></div>';

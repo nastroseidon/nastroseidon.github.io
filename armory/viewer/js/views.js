@@ -65,6 +65,7 @@
 
   // ================================================================= overview
   function renderOverview(el, ctx) {
+    colorGd = ctx.gd;
     const { model, planner, gd } = ctx;
     const pd = planner.data;
     let h = '<div class="grid-2">';
@@ -79,7 +80,7 @@
 
     // skill bar
     h += `<section class="panel"><h3>Skill Bar <span class="muted">(${esc(model.name)})</span></h3><div class="skillbar">${model.skillBar
-      .map((s) => `<div class="sb-skill" data-tip="${D4.tip(`<div class="tt-title">${esc(s.name)}</div><div class="tt-body">${s.html}</div>`)}">${icon(s.icon, 'sb-icon', s.name)}<span>${esc(s.name)}</span></div>`)
+      .map((s) => `<div class="sb-skill" style="--c:${skillColor(s.key)}" data-tip="${D4.tip(`<div class="tt-title">${esc(s.name)}</div><div class="tt-body">${s.html}</div>`)}">${icon(s.icon, 'sb-icon', s.name)}<span>${esc(s.name)}</span></div>`)
       .join('')}</div></section>`;
     h += '</div>';
 
@@ -147,6 +148,19 @@
     return `<div class="tt-title">${esc(i.name)}</div><div class="tt-sub">${esc(kind)} &middot; Rank ${esc(rank)}</div>${i.desc ? `<div class="tt-body">${D4.renderText(i.desc, ctx)}</div>` : ''}`;
   }
 
+  // One colour per skill school, so a skill, its upgrades and its place in the tree read as one group.
+  // School tags first (Blood, Bone, Shadow...), then the damage type, then gold.
+  const SCHOOL = { Skill_Blood: '#d8473c', Skill_Bone: '#dccaa0', Skill_Shadow: '#a37cf2', Skill_Corruption: '#e3b443', Skill_Golem: '#58c2b4',
+    Skill_Primary_Summoning: '#58c2b4', Skill_Primary_Minion: '#58c2b4', Skill_Fire: '#f07a35', Skill_Cold: '#6cb8ff', Skill_Lightning: '#b99cff' };
+  const DAMAGE = { 0: '#cdb593', 1: '#f07a35', 2: '#b99cff', 3: '#6cb8ff', 4: '#79c466', 5: '#a37cf2' };
+  let colorGd = null;
+  function skillColor(power, gd = colorGd) {
+    const s = gd?.d?.skills?.[power];
+    if (!s) return '#e3b35f';
+    for (const t of [...(s.tags || []), s.primaryTag]) if (SCHOOL[t]) return SCHOOL[t];
+    return DAMAGE[s.damageType] || '#e3b35f';
+  }
+
   function skillTreeSvg(gd, tree, step, uid) {
     if (!tree) return { svg: '<p class="muted">Skill tree data not available.</p>', bounds: null };
     const nodes = tree.nodes || [];
@@ -180,20 +194,34 @@
       const rank = alloc[n.id] || 0;
       const r = info.kind === 'skill' ? 330 : info.kind === 'mod' ? 240 : 220;
       const tipId = D4.tip(() => skillTip({ rank, info }, step.ctx));
+      const color = skillColor(info.power, gd);
       const shape =
         info.kind === 'passive'
           ? `<rect class="st-bg" x="${-r}" y="${-r}" width="${2 * r}" height="${2 * r}" rx="${r * 0.25}" transform="rotate(45)"/>`
-          : `<circle class="st-bg" r="${r}"/>`;
+          : info.kind === 'skill'
+            ? `<rect class="st-bg" x="${-r}" y="${-r}" width="${2 * r}" height="${2 * r}" rx="${r * 0.18}"/>`
+            : `<circle class="st-bg" r="${r}"/>`;
+      const ring = info.kind === 'skill' ? `<rect class="st-ring" x="${-r}" y="${-r}" width="${2 * r}" height="${2 * r}" rx="${r * 0.18}"/>` : `<circle class="st-ring" r="${r}"/>`;
       const img = info.icon
-        ? `<image href="${esc(D4.iconUrl(info.icon))}" x="${-r * 0.86}" y="${-r * 0.86}" width="${r * 1.72}" height="${r * 1.72}" clip-path="url(#stclip-${uid})"/>`
+        ? `<image href="${esc(D4.iconUrl(info.icon))}" x="${-r * 0.86}" y="${-r * 0.86}" width="${r * 1.72}" height="${r * 1.72}"${info.kind === 'skill' ? '' : ` clip-path="url(#stclip-${uid})"`}/>`
         : '';
       const badge = rank > 0 && info.maxRank > 1 ? `<g class="st-badge" transform="translate(0,${r + 50})"><rect x="-150" y="-85" width="300" height="150" rx="50"/><text y="18">${rank}/${info.maxRank}</text></g>` : '';
-      gs += `<g class="st-node k-${info.kind}${rank > 0 ? ' on' : ''}" transform="translate(${x.toFixed(0)},${y.toFixed(0)})" data-tip="${tipId}">${shape}${img}<circle class="st-ring" r="${r}"/>${badge}</g>`;
+      gs += `<g class="st-node k-${info.kind}${rank > 0 ? ' on' : ''}" style="--c:${color}" transform="translate(${x.toFixed(0)},${y.toFixed(0)})" data-tip="${tipId}">${shape}${img}${ring}${badge}</g>`;
     }
     const svg = `<svg class="skilltree" preserveAspectRatio="xMidYMid meet" xmlns="http://www.w3.org/2000/svg">
       <defs><clipPath id="stclip-${uid}" clipPathUnits="objectBoundingBox"><circle cx="0.5" cy="0.5" r="0.5"/></clipPath></defs>
       <g class="links">${lines}</g><g class="nodes">${gs}</g></svg>`;
     return { svg, bounds };
+  }
+
+  // Starting view for a small screen: about twice the full-tree zoom, centred on the allocated nodes,
+  // so node icons and ranks are big enough to read. Drag or pinch to see the rest.
+  function allocatedBounds(tree, step, full) {
+    const on = (tree?.nodes || []).filter((n) => !n.root && n.rewardId && step.alloc[n.id] > 0);
+    if (!on.length) return null;
+    const cx = on.reduce((t, n) => t + n.pos.x, 0) / on.length, cy = on.reduce((t, n) => t + n.pos.y, 0) / on.length;
+    const w = full.w / 2, h = w * 1.4;
+    return { x: cx - w / 2, y: cy - h / 2, w, h };
   }
 
   function stepPills(steps, cur, attr, guideStep) {
@@ -211,32 +239,39 @@
   function skillAllocationList(step) {
     let h = '<div class="alloc">';
     for (const s of step.skills) {
-      h += `<div class="alloc-skill" data-tip="${D4.tip(() => skillTip(s, step.ctx))}">${icon(s.info.icon, 'alloc-icon', s.info.name)}<div><div class="alloc-name">${esc(s.info.name)} <span class="rank">${s.rank}/${s.info.maxRank}</span></div>${s.mods.length ? `<div class="alloc-mods">${s.mods.map((m) => `<span class="mod" data-tip="${D4.tip(() => skillTip(m, step.ctx))}">${esc(m.info.name)}</span>`).join('')}</div>` : ''}</div></div>`;
+      h += `<div class="alloc-skill" style="--c:${skillColor(s.info.power)}" data-tip="${D4.tip(() => skillTip(s, step.ctx))}">${icon(s.info.icon, 'alloc-icon', s.info.name)}<div><div class="alloc-name">${esc(s.info.name)} <span class="rank">${s.rank}/${s.info.maxRank}</span></div>${s.mods.length ? `<div class="alloc-mods">${s.mods.map((m) => `<span class="mod" data-tip="${D4.tip(() => skillTip(m, step.ctx))}">${esc(m.info.name)}</span>`).join('')}</div>` : ''}</div></div>`;
     }
     if (step.passives.length) {
       h += `<div class="sect-label">Passives</div><div class="alloc-passives">${step.passives
-        .map((p) => `<span class="passive" data-tip="${D4.tip(() => skillTip(p, step.ctx))}">${icon(p.info.icon, 'p-icon', p.info.name)}${esc(p.info.name)} <span class="rank">${p.rank}/${p.info.maxRank}</span></span>`)
+        .map((p) => `<span class="passive" style="--c:${skillColor(p.info.power)}" data-tip="${D4.tip(() => skillTip(p, step.ctx))}">${icon(p.info.icon, 'p-icon', p.info.name)}${esc(p.info.name)} <span class="rank">${p.rank}/${p.info.maxRank}</span></span>`)
         .join('')}</div>`;
     }
     return h + '</div>';
   }
 
   function renderSkills(el, ctx) {
+    colorGd = ctx.gd;
     const { model, gd, state } = ctx;
     const steps = model.skillTree.steps;
     const si = Math.min(state.skillStep ?? model.skillTree.active ?? steps.length - 1, steps.length - 1);
     const step = steps[si];
     let h = '<div class="with-notes"><div class="main-col">';
     h += `<section class="panel"><h3>Skill Bar</h3><div class="skillbar">${model.skillBar
-      .map((s) => `<div class="sb-skill" data-tip="${D4.tip(`<div class="tt-title">${esc(s.name)}</div><div class="tt-body">${s.html}</div>`)}">${icon(s.icon, 'sb-icon', s.name)}<span>${esc(s.name)}</span></div>`)
+      .map((s) => `<div class="sb-skill" style="--c:${skillColor(s.key)}" data-tip="${D4.tip(`<div class="tt-title">${esc(s.name)}</div><div class="tt-body">${s.html}</div>`)}">${icon(s.icon, 'sb-icon', s.name)}<span>${esc(s.name)}</span></div>`)
       .join('')}</div></section>`;
     if (!step) {
       h += '<p class="muted">No skill tree in this variant.</p></div></div>';
       el.innerHTML = h;
       return;
     }
-    h += `<section class="panel"><h3>Skill Tree <span class="muted">&middot; ${step.points} points</span></h3>${stepPills(steps, si, 'data-skill-step', model.skillTree.active)}<div class="tree-slot"></div></section>`;
-    h += `<section class="panel"><h3>Allocated</h3>${skillAllocationList(step)}</section>`;
+    // On a phone the whole tree is too small to read, so the allocation list comes first and the map
+    // sits folded below it, opening zoomed in on the allocated nodes
+    const phone = typeof matchMedia === 'function' && matchMedia('(max-width: 700px)').matches;
+    const treeHtml = phone
+      ? `<details class="panel tree-fold"><summary><h3>Skill tree map <span class="muted">&middot; ${step.points} points</span></h3></summary>${stepPills(steps, si, 'data-skill-step', model.skillTree.active)}<div class="tree-slot"></div></details>`
+      : `<section class="panel"><h3>Skill Tree <span class="muted">&middot; ${step.points} points</span></h3>${stepPills(steps, si, 'data-skill-step', model.skillTree.active)}<div class="tree-slot"></div></section>`;
+    const allocHtml = `<section class="panel"><h3>${phone ? `Allocated skills <span class="muted">&middot; ${step.points} points</span>` : 'Allocated'}</h3>${phone && steps.length > 1 ? stepPills(steps, si, 'data-skill-step', model.skillTree.active) : ''}${skillAllocationList(step)}</section>`;
+    h += phone ? allocHtml + treeHtml : treeHtml + allocHtml;
     h += '</div>';
     h += notesAside(model.notes.skills, 'Skill & Rotation Notes', ctx);
     h += '</div>';
@@ -247,7 +282,9 @@
     if (bounds) {
       const wrap = D4.mapViewport(svg);
       slot.appendChild(wrap);
-      const pz = D4.panZoom(wrap.querySelector('svg'), bounds);
+      const phone = typeof matchMedia === 'function' && matchMedia('(max-width: 700px)').matches;
+      const home = phone ? allocatedBounds(model.skillTree.tree, step, bounds) || bounds : bounds;
+      const pz = D4.panZoom(wrap.querySelector('svg'), home, { maxW: bounds.w * 1.5, minW: bounds.w / 30 });
       D4.bindMapControls(wrap, pz);
     } else slot.innerHTML = svg;
     el.querySelectorAll('[data-skill-step]').forEach((b) =>
@@ -381,6 +418,7 @@
   }
 
   function renderSystems(el, ctx) {
+    colorGd = ctx.gd;
     const { model, gd } = ctx;
     let h = '<div class="with-notes"><div class="main-col">';
     const none = (what) => `<p class="muted">This variant&rsquo;s planner has no ${what}.</p>`;
