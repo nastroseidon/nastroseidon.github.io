@@ -51,7 +51,7 @@ table.affixedit{width:100%;border-collapse:collapse;font-size:.85rem}
 .affixedit input[type=checkbox]{width:auto}
 button.small{padding:4px 9px;font-size:.8rem}
 .toolbar.sticky{position:sticky;bottom:-22px;background:linear-gradient(0deg,#1c1515 70%,transparent);padding:12px 0 6px;margin-top:14px;z-index:2}
-.scorecards{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:8px 0 12px}
+.scorecards{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:8px 0 12px}.ringpick{margin:8px 0 12px}.ringpick-label{font-size:.72rem;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-bottom:6px}.ringpick-opts{display:grid;grid-template-columns:1fr 1fr;gap:8px}.ringopt{display:flex;flex-direction:column;align-items:flex-start;gap:3px;text-align:left;padding:10px 12px;border:1px solid #6b5047;border-radius:6px;background:rgba(255,255,255,.03);color:inherit;font:inherit;cursor:pointer;min-height:44px;min-width:0}.ringopt small{color:var(--muted);font-size:.7rem;letter-spacing:.06em;text-transform:uppercase}.ringopt strong{font-size:.9rem;line-height:1.2;overflow-wrap:anywhere}.ringopt span{font-size:.8rem;color:var(--muted)}.ringopt b{font-size:1rem}.ringopt em{margin-left:6px}.ringopt em{font-style:normal}.ringopt em.up{color:#7fbf6a}.ringopt em.down{color:#d0675c}.ringopt.on{border-color:var(--gold);background:rgba(201,164,92,.12);box-shadow:inset 0 0 0 1px var(--gold)}
 .scorecard{border:1px solid #6b5047;padding:12px 14px;border-radius:4px}
 .scorecard strong{display:block;font-size:2.4rem;line-height:1.1;font-family:Georgia,serif}
 .scorecard strong span{font-size:1rem;color:var(--muted)}
