@@ -6,7 +6,7 @@
 .character.class-necromancer:after{display:none}
 .targeteditor{border:1px solid var(--line);padding:14px;min-width:0}.targeteditor legend{color:var(--gold)}.targeteditor input{width:100%}.field input{width:100%}
 .targetsummary{border-top:1px solid var(--line);margin-top:9px;padding-top:8px;font-size:.78rem;line-height:1.65}.targetsummary>span{color:var(--gold);font-size:.68rem;text-transform:uppercase;letter-spacing:.06em}.targetsummary p{margin-top:5px}.aunknown{color:var(--muted)}
-.codexgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(235px,1fr));gap:10px;font-size:.85rem}
+.codexgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(235px,1fr));gap:10px;font-size:.85rem}.listgroup{margin:16px 0 8px;font-size:.78rem;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}.listgroup span{margin-left:6px;padding:1px 7px;border-radius:9px;background:rgba(255,255,255,.08);font-size:.72rem}.listgroup+.codexgrid{margin-bottom:4px}
 
 .itemuses{margin-top:12px;font-size:.9rem}.uselabel{font-weight:600;color:var(--gold);margin:14px 0 5px}.personlist>div,.usebuildnames>div{padding:3px 0}.usebuildgroup{display:grid;grid-template-columns:max-content minmax(0,1fr);gap:8px;margin:3px 0 9px}.useclass{padding-top:3px}.usebuildnames{min-width:0;overflow-wrap:anywhere}.personlist{margin-bottom:12px}.personlist>div+div{margin-top:2px}
 
