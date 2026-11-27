@@ -134,7 +134,9 @@
 
   function notesAside(note, title, ctx) {
     if (!D4.hasLexicalContent(note)) return '';
-    return `<aside class="notes-col panel notes"><h3>${esc(title)}</h3>${D4.renderLexical(note, { gd: ctx.gd, tip: D4.tip, cls: ctx.model.cls })}</aside>`;
+    // Guide prose is long; on phone widths it starts folded so the boards, skills and gear stay close together
+    const open = typeof matchMedia !== 'function' || !matchMedia('(max-width: 700px)').matches;
+    return `<details class="notes-col panel notes"${open ? ' open' : ''}><summary><h3>${esc(title)}</h3></summary>${D4.renderLexical(note, { gd: ctx.gd, tip: D4.tip, cls: ctx.model.cls })}</details>`;
   }
 
   // ================================================================= skills
