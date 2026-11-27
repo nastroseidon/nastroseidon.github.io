@@ -139,6 +139,18 @@ input.invalid,.affixedit input.invalid{border-color:var(--red);box-shadow:0 0 0 
 /* Phone layout for the character dashboard and build progression (0.12). Desktop keeps every section visible. */
 .dashtabs,.needfilters,.buildnotice,.entryneeds{display:none}
 .statgrid{display:grid;gap:9px}
+.prio{border-top:1px solid var(--line);margin-top:9px;padding-top:8px;font-size:.78rem;line-height:1.5}
+.prio ol{list-style:none;margin:0;padding:0}
+.prio li{display:flex;gap:6px;align-items:baseline}
+.prio .pn{color:var(--muted);min-width:1.3em;font-variant-numeric:tabular-nums}
+.prio .pa{flex:1;min-width:0}
+.prio li.have .pa{color:var(--text)}.prio li.miss .pa{color:#c9a9a3}
+.prio .pm{font-size:.72rem;font-weight:700}.prio li.have .pm{color:var(--green)}.prio li.miss .pm{color:#e0827a}
+.prio .mw{color:var(--orange);font-weight:700}
+.prio .gax{font-size:.6rem;color:var(--gold2);border:1px solid #906b50;padding:0 3px;margin-left:2px;vertical-align:1px}
+.prioline{display:flex;gap:8px;margin-top:6px;align-items:baseline}
+.prioline .pk{flex:0 0 3.9em;color:var(--gold);font-size:.68rem;text-transform:uppercase;letter-spacing:.06em}
+.prioline .sock{display:block}.prioline .sock small{color:var(--muted)}
 .uncaptured{margin-top:4px}.uncaptured summary{cursor:pointer;color:var(--muted);font-size:.74rem;padding:8px 2px}
 @media(max-width:650px){
   .dash .heading h1{font-size:1.6rem;margin:2px 0 4px}
@@ -164,14 +176,14 @@ input.invalid,.affixedit input.invalid{border-color:var(--red);box-shadow:0 0 0 
   .needfilters span{color:var(--gold);font-size:.7rem;margin-left:2px}
   .dash-filter-missing [data-tab=needs] .entry:not([data-kind=missing]),.dash-filter-upgrade [data-tab=needs] .entry:not([data-kind=upgrade]),.dash-filter-goal [data-tab=needs] .entry:not([data-kind=goal]){display:none}
   /* Compact item rows: slot and rank, then name with status on the right, then the aspect/power line */
-  .dash .entry{display:grid;grid-template-columns:minmax(0,1fr) auto;grid-template-areas:"top top" "name pills" "aspect pills" "bar bar" "needs needs";column-gap:10px;padding:8px 10px}
+  .dash .entry{display:grid;grid-template-columns:minmax(0,1fr) auto;grid-template-areas:"top top" "name pills" "aspect pills" "bar bar" "needs needs" "prio prio";column-gap:10px;padding:8px 10px}
   .dash .entrytop{grid-area:top;font-size:.62rem}
   .dash .entry strong{grid-area:name;font-size:.9rem;margin:3px 0 1px;line-height:1.25}
   .dash .entry>p:not(.entryneeds){grid-area:aspect;font-size:.72rem}
   .dash .entry .rollbar{grid-area:bar;margin-top:6px;height:3px}
   .dash .entrypills{grid-area:pills;align-self:center;display:flex;flex-direction:column;align-items:flex-end;gap:4px;max-width:118px;text-align:right}
   .dash .entry .pill{margin:0!important;font-size:.58rem;padding:2px 5px;line-height:1.3}
-  .dash .entry .targetsummary{display:none}
+  .dash .entry .prio{grid-area:prio;font-size:.74rem;margin-top:7px;padding-top:6px}
   .dash .entryneeds{display:block;grid-area:needs;margin-top:5px;font-size:.72rem;color:#eab0a7}
   .statgrid{display:grid;grid-template-columns:1fr 1fr;column-gap:14px}
   .dash .sectionbox{margin-top:12px}

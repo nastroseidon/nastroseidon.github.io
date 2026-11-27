@@ -183,7 +183,7 @@
         <button type="button" data-z="reset" title="Fit" aria-label="Fit to view">&#x2922;</button>
         ${extraControls}
       </div>
-      <div class="map-hint">Drag to pan &middot; scroll to zoom &middot; hover for details</div>`;
+      <div class="map-hint">${typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches ? 'Drag to move &middot; pinch to zoom &middot; tap for details' : 'Drag to pan &middot; scroll to zoom &middot; hover for details'}</div>`;
     return wrap;
   };
   D4.bindMapControls = function (wrap, pz) {
