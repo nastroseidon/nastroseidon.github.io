@@ -1,4 +1,4 @@
-# Sanctuary Armory (web edition 0.13.0)
+# Sanctuary Armory (web edition 0.13.1)
 
 Built from the Sanctuary Armory project with `node scripts/build_web.mjs`. Don't edit these files by hand; rebuild instead.
 Open https://nicksmith.app/armory/ on the iPhone and use Share → Add to Home Screen.
