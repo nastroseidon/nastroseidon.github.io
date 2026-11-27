@@ -6,7 +6,7 @@
 .character.class-necromancer:after{display:none}
 .targeteditor{border:1px solid var(--line);padding:14px;min-width:0}.targeteditor legend{color:var(--gold)}.targeteditor input{width:100%}.field input{width:100%}
 .targetsummary{border-top:1px solid var(--line);margin-top:9px;padding-top:8px;font-size:.78rem;line-height:1.65}.targetsummary>span{color:var(--gold);font-size:.68rem;text-transform:uppercase;letter-spacing:.06em}.targetsummary p{margin-top:5px}.aunknown{color:var(--muted)}
-.codexgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(235px,1fr));gap:10px;font-size:.85rem}.listgroup{margin:16px 0 8px;font-size:.78rem;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}.listgroup span{margin-left:6px;padding:1px 7px;border-radius:9px;background:rgba(255,255,255,.08);font-size:.72rem}.listgroup+.codexgrid{margin-bottom:4px}
+.codexgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(235px,1fr));gap:10px;font-size:.85rem}.needgroup>.listgroup{margin-top:4px}.needgroup+.needgroup{margin-top:14px}.listgroup{margin:16px 0 8px;font-size:.78rem;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}.listgroup span{margin-left:6px;padding:1px 7px;border-radius:9px;background:rgba(255,255,255,.08);font-size:.72rem}.listgroup+.codexgrid{margin-bottom:4px}
 
 .itemuses{margin-top:12px;font-size:.9rem}.uselabel{font-weight:600;color:var(--gold);margin:14px 0 5px}.personlist>div,.usebuildnames>div{padding:3px 0}.usebuildgroup{display:grid;grid-template-columns:max-content minmax(0,1fr);gap:8px;margin:3px 0 9px}.useclass{padding-top:3px}.usebuildnames{min-width:0;overflow-wrap:anywhere}.personlist{margin-bottom:12px}.personlist>div+div{margin-top:2px}
 
@@ -174,7 +174,7 @@ input.invalid,.affixedit input.invalid{border-color:var(--red);box-shadow:0 0 0 
   .needfilters button{flex:0 0 auto;background:transparent;border:1px solid #644b44;border-radius:999px;color:var(--muted);font-size:.76rem;font-weight:600;padding:5px 12px}
   .needfilters button.on{border-color:var(--gold);color:var(--gold2);background:#51322d55}
   .needfilters span{color:var(--gold);font-size:.7rem;margin-left:2px}
-  .dash-filter-missing [data-tab=needs] .entry:not([data-kind=missing]),.dash-filter-upgrade [data-tab=needs] .entry:not([data-kind=upgrade]),.dash-filter-goal [data-tab=needs] .entry:not([data-kind=goal]){display:none}
+  .dash-filter-missing [data-tab=needs] .needgroup:not(.has-missing),.dash-filter-upgrade [data-tab=needs] .needgroup:not(.has-upgrade),.dash-filter-goal [data-tab=needs] .needgroup:not(.has-goal),.dash-filter-missing [data-tab=needs] .entry:not([data-kind=missing]),.dash-filter-upgrade [data-tab=needs] .entry:not([data-kind=upgrade]),.dash-filter-goal [data-tab=needs] .entry:not([data-kind=goal]){display:none}
   /* Compact item rows: slot and rank, then name with status on the right, then the aspect/power line */
   .dash .entry{display:grid;grid-template-columns:minmax(0,1fr) auto;grid-template-areas:"top top" "name pills" "aspect pills" "bar bar" "needs needs" "prio prio";column-gap:10px;padding:8px 10px}
   .dash .entrytop{grid-area:top;font-size:.62rem}
