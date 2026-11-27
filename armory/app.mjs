@@ -427,16 +427,30 @@ function itemEditor(id){
 function parseAffixLines(text){return text.split(/\n/).map(line=>line.split('|').map(x=>x.trim())).filter(a=>a[0]).map(([name,value,min,max])=>({name,value:value===''?null:Number(value),min:min===''?null:Number(min),max:max===''?null:Number(max),kind:'unknown',sourceStatus:'manual correction'}))}
 async function readAsDataURL(file){return new Promise((resolve,reject)=>{const r=new FileReader();r.onload=()=>resolve(r.result);r.onerror=()=>reject(r.error);r.readAsDataURL(file)})}
 async function sha256(file){const bytes=await file.arrayBuffer();const hash=await crypto.subtle.digest('SHA-256',bytes);return [...new Uint8Array(hash)].map(x=>x.toString(16).padStart(2,'0')).join('')}
-function comparisonHtml(candidate){
-  const c=char(),b=build(c),slot=candidate.slot,current=itemFor(c,slot),target=b?.slots?.[targetSlot(b,slot)];
+const isRing=slot=>/^ring[12]$/.test(slot||'');
+// Both ring slots side by side; the chosen one is what the rest of the screen compares against
+function ringPickerHtml(opts,selected,attrs){
+  const fmt=d=>d==null?'':d>0?'+'+d:String(d);
+  return '<div class="ringpick"><div class="ringpick-label">Replace which ring?</div><div class="ringpick-opts">'+opts.map(o=>'<button type="button" class="ringopt'+(o.s===selected?' on':'')+'" '+attrs(o.s)+' aria-pressed="'+(o.s===selected)+'"><small>'+esc(slotNames[o.s])+(o.best?' · best swap':'')+'</small><strong>'+esc(o.current?.name||'Empty slot')+'</strong><span><b class="'+scoreBand(o.currentScore)+'">'+(o.currentScore??'—')+'</b>'+(o.currentScore!=null?'/100':'')+(o.delta!=null?' <em class="'+(o.delta>0?'up':o.delta<0?'down':'')+'">'+fmt(o.delta)+' if swapped</em>':'')+'</span></button>').join('')+'</div></div>';
+}
+function bestRing(opts){const best=[...opts].sort((a,b)=>(b.delta??-999)-(a.delta??-999))[0];if(best)best.best=opts.filter(o=>o.delta===best.delta).length===1;return best?.s}
+function comparisonHtml(candidate,slotOverride){
+  const c=char(),b=build(c);let slot=candidate.slot,picker='',pick=null;
+  if(isRing(slot)&&c){
+    const opts=['ring1','ring2'].map(s=>{const t=b?.slots?.[targetSlot(b,s)]||null,cur=itemFor(c,s),own=cur?.id===candidate.id,p=t?gradeItem(candidate,t)?.score:null,e=cur&&!own&&t?gradeItem(cur,t)?.score??null:null;return {s,current:own?null:cur,currentScore:e,delta:p!=null?p-(e??0):null}});
+    slot=slotOverride||bestRing(opts);pick=opts.find(o=>o.s===slot);
+    picker=ringPickerHtml(opts,slot,s=>'data-action="compare-ring" data-id="'+esc(candidate.id+'|'+s)+'"');
+  }
+  const current=itemFor(c,slot),target=b?.slots?.[targetSlot(b,slot)];
   const proposed=scoreItem({...candidate,slot:targetSlot(b,slot)},b);
   const existing=current?scoreItem({...current,slot:targetSlot(b,slot)},b):null;
-  const verdict=c&&!compatibleCharacters(candidate,[c]).length?'Cannot equip on '+c.name+': character type, season or class restriction does not match.':!target?'Cannot determine: active build has no target for this slot.':!current?'Potential upgrade: this slot is unrecorded.':proposed.score>existing.score?'Promising candidate: more weighted target affixes.':proposed.score<existing.score?'Current item has stronger recorded affix fit.':'Similar recorded affix fit; compare power, defenses and crafting.';
-  return '<div class="notice">'+esc(verdict)+' This is a heuristic, not a damage calculation.</div><div class="modalgrid"><div class="modalblock"><h3>Equipped</h3><p>'+esc(current?.name||'None recorded')+'</p>'+(current?.affixes||[]).map(a=>affixHtml(a,target)).join('')+'</div><div class="modalblock"><h3>Candidate</h3><p>'+esc(candidate.name||'Unidentified')+'</p>'+(candidate.affixes||[]).map(a=>affixHtml(a,target)).join('')+'</div></div><h3>Other uses before salvage</h3>'+usesHtml(candidate)+'';
+  const verdict=c&&!compatibleCharacters(candidate,[c]).length?'Cannot equip on '+c.name+': character type, season or class restriction does not match.':!target?'Cannot determine: active build has no target for this slot.':!current?'Potential upgrade: this slot is unrecorded.':pick?.delta!=null&&pick.current?(pick.delta>2?'Promising candidate: scores '+pick.delta+' higher than '+pick.current.name+' for this build.':pick.delta<-2?pick.current.name+' fits this build better (by '+(-pick.delta)+').':'Similar build fit to '+pick.current.name+'; compare power, defenses and crafting.'):proposed.score>existing.score?'Promising candidate: more weighted target affixes.':proposed.score<existing.score?'Current item has stronger recorded affix fit.':'Similar recorded affix fit; compare power, defenses and crafting.';
+  return picker+'<div class="notice">'+esc(verdict)+' This is a heuristic, not a damage calculation.</div><div class="modalgrid"><div class="modalblock"><h3>Equipped'+(picker?' · '+esc(slotNames[slot]):'')+'</h3><p>'+esc(current?.name||'None recorded')+'</p>'+(current?.affixes||[]).map(a=>affixHtml(a,target)).join('')+'</div><div class="modalblock"><h3>Candidate</h3><p>'+esc(candidate.name||'Unidentified')+'</p>'+(candidate.affixes||[]).map(a=>affixHtml(a,target)).join('')+'</div></div><h3>Other uses before salvage</h3>'+usesHtml(candidate)+'';
 }
-function compareSavedItem(id){
+function compareSavedItem(id,ringSlot){
   const item=state.items.find(i=>i.id===id);if(!item)return;
-  openModal('Compare '+item.name,'SAVED ITEM',comparisonHtml(item)+'<div class="toolbar">'+button('Equip on selected character','equip-saved',id,'primary')+button('Keep in shared stash','stash-saved',id,'secondary')+button('Mark ignored','ignore-saved',id,'quiet')+'</div>');
+  const html=comparisonHtml(item,ringSlot),slot=isRing(item.slot)?(html.match(/class="ringopt on" data-action="compare-ring" data-id="[^"|]*\|(ring[12])"/)?.[1]||item.slot):item.slot,cur=itemFor(char(),slot);
+  openModal('Compare '+item.name,'SAVED ITEM',html+'<div class="toolbar">'+button(isRing(slot)?'Equip as '+slotNames[slot]+(cur&&cur.id!==id?' (replace '+cur.name+')':''):'Equip on selected character','equip-saved',id+'|'+slot,'primary')+button('Keep in shared stash','stash-saved',id,'secondary')+button('Mark ignored','ignore-saved',id,'quiet')+'</div>');
 }
 // ----- Scan Item: 1 upload → 2 verify (item image left, editable fields right) → 3 grade against the build
 let scan=null;
@@ -769,14 +783,15 @@ const scoreBand=s=>s==null?'unknown':s>=80?'a3':s>=60?'a2':s>=40?'a1':'a0';
 function scoreCard(label,name,grade,potential){
   return '<div class="scorecard"><small>'+esc(label)+'</small><strong class="'+scoreBand(grade?.score)+'">'+(grade?.score??'—')+'<span>/100</span></strong><div>'+esc(name||'Nothing recorded')+'</div>'+(potential!=null&&grade?.score!=null&&potential>grade.score?'<small class="muted">'+potential+' with crafting</small>':'')+'</div>';
 }
+function ringOptions(it,c){const opts=['ring1','ring2'].map(s=>{const {target}=scanTarget(s),cur=itemFor(c,s);const g=gradeItem(it,target),gc=cur?gradeItem(cur,target):null;return {s,current:cur,currentScore:gc?.score??null,delta:g?.score!=null?g.score-(gc?.score??0):null}});bestRing(opts);return opts}
 function scanGrade(){
   const it=scan.item,c=char();
   // Rings: compare with the ring slot where this item helps most
   let slot=it.slot;
   if(/^ring[12]$/.test(slot)&&!scan.ringLocked){
-    const options=['ring1','ring2'].map(s=>{const {target}=scanTarget(s),cur=itemFor(c,s);const g=gradeItem(it,target),gc=cur?gradeItem(cur,target):null;return {s,delta:(g?.score??0)-(gc?.score??0)}});
-    slot=options.sort((a,b)=>b.delta-a.delta)[0].s;it.slot=slot;
+    slot=bestRing(ringOptions(it,c));it.slot=slot;
   }
+  const ringPicker=isRing(slot)&&c?ringPickerHtml(ringOptions(it,c),slot,s=>'data-ring-pick="'+s+'"'):'';
   const {b,target}=scanTarget(slot),current=itemFor(c,slot);
   const ctx={codex:(state.codex||[]).filter(a=>!a.characterId||a.characterId===c?.id),craftingRules:state.craftingRules||[]};
   const g=gradeItem(it,target),gc=current?gradeItem(current,target):null;
@@ -797,7 +812,7 @@ function scanGrade(){
   const decisionBar='<div class="toolbar decision"><button type="button" class="'+(rec.verdict==='replace'?'primary':'secondary')+'" data-scan-save="equip">'+esc(equipLabel)+'</button><button type="button" class="'+(rec.verdict==='replace'?'secondary':'primary')+'" data-scan-save="stash">Keep in stash</button><button type="button" class="quiet" data-scan-save="ignore">Ignore</button><button type="button" class="danger" data-scan-save="salvaged">Mark salvaged</button><button type="button" class="quiet" data-scan-edit>Back to edit</button></div>';
   scanStep(3,'Item grade','<div class="scanlayout"><div class="scanimage">'+((scan.cropData||scan.imageData)?'<img src="'+esc(scan.cropData||scan.imageData)+'" alt="Scanned item">':'')+'</div><div>'
     +'<p class="muted">Graded for <strong>'+esc(b?.name||'no build')+(b?.variantName?' · '+esc(b.variantName):'')+'</strong> · '+esc(slotNames[slot]||slot)+(target?' · guide item: <strong>'+esc(target.name||'any')+'</strong>'+(target.aspect?' with '+esc(target.aspect):''):'')+'</p>'
-    +'<div class="scorecards">'+scoreCard('This item',it.name,g,plan.potential)+scoreCard('Equipped',current?.name,gc,planCurrent?.potential)+'</div>'
+    +ringPicker+'<div class="scorecards">'+scoreCard('This item',it.name,g,plan.potential)+scoreCard(ringPicker?'Equipped · '+slotNames[slot]:'Equipped',current?.name,gc,planCurrent?.potential)+'</div>'
     +'<div class="recommend '+rec.verdict+'">'+esc(rec.text)+(plan.potential!=null&&gc?.score!=null&&rec.verdict!=='replace'&&plan.potential>gc.score+2?' With crafting it could reach '+plan.potential+', above the equipped '+gc.score+'.':'')+'</div>'+decisionBar
     +(target?'<details class="sectionbox" open><summary>How the score is built</summary><table class="gradetable"><thead><tr><th></th><th>This item</th><th>Equipped</th></tr></thead><tbody>'+compRows+'</tbody></table></details><details class="sectionbox" open><summary>Affixes vs the guide</summary><table class="gradetable"><thead><tr><th>Guide affix</th><th>Guide value</th><th>This item<small>'+esc(it.name||'')+'</small></th><th>Equipped<small>'+esc(current?.name||'nothing equipped')+'</small></th></tr></thead><tbody>'+affixRows+'</tbody></table>'+(extras?'<p class="muted">Not used by the guide:</p><ul class="compactlist">'+extras+'</ul>':'')+'</details>':'')
     +(planHtml?'<section class="sectionbox"><h3>Improve this item'+(plan.potential!=null&&plan.potential>(g?.score??0)?' · up to '+plan.potential+'/100':'')+'</h3><p class="muted">Highlighted steps are included in the estimate (new rolls assumed average). Check costs and eligibility in game.</p><div class="stations">'+planHtml+'</div></section>':'')
@@ -806,6 +821,7 @@ function scanGrade(){
     +'<p class="muted small">The score measures fit to the guide’s item, affixes, aspect, tempers and Greater Affixes. It is not a damage calculation.</p>'
     +''+decisionBar+'</div></div>');
   document.querySelectorAll('[data-scan-edit]').forEach(b=>b.onclick=scanVerify);
+  document.querySelectorAll('[data-ring-pick]').forEach(btn=>btn.onclick=()=>{if(btn.dataset.ringPick===slot)return;const m=$('modal'),top=m.scrollTop;scan.ringLocked=true;it.slot=btn.dataset.ringPick;scanGrade();$('modal').scrollTop=top});
   document.querySelectorAll('[data-scan-save]').forEach(btn=>btn.onclick=async()=>{
     const action=btn.dataset.scanSave;
     if(action==='equip'&&!c){toast('Create a character first');return}
@@ -988,7 +1004,8 @@ document.addEventListener('click',async event=>{
     else if(action==='switch-build')switchBuildForm();
     else if(action==='scan-item')scanDialog();
     else if(action==='compare-item')compareSavedItem(id);
-    else if(action==='equip-saved'){const item=state.items.find(i=>i.id===id);if(!char())throw new Error('Select a character first');state=equipItem(state,char().id,id,item.slot);await save();closeModal();view='dashboard';render()}
+    else if(action==='compare-ring'){const [itemId,slot]=id.split('|');const m=$('modal'),top=m?.scrollTop;compareSavedItem(itemId,slot);if(m)m.scrollTop=top}
+    else if(action==='equip-saved'){const [itemId,slotPick]=id.split('|');const item=state.items.find(i=>i.id===itemId),slot=slotPick||item.slot;if(!char())throw new Error('Select a character first');state=equipItem(state,char().id,itemId,slot);const moved=state.items.find(i=>i.id===itemId);if(moved&&isRing(slot))moved.slot=slot;await save();closeModal();view='dashboard';render()}
     else if(action==='stash-saved'||action==='ignore-saved'){
       const item=state.items.find(i=>i.id===id);
       if(item.location==='withdrawal')throw new Error('Use Season Rollover & Withdrawals to review and transfer this item');
